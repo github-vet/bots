@@ -15,22 +15,11 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
-const Doc = `check references to loop variables from within nested functions
-This analyzer checks for references to loop variables from within a
-function literal inside the loop body. It checks only instances where
-the function literal is called in a defer or go statement that is the
-last statement in the loop body, as otherwise we would need whole
-program analysis.
-For example:
-	for i, v := range s {
-		go func() {
-			println(i, v) // not what you might expect
-		}()
-	}
-See: https://golang.org/doc/go_faq.html#closures_and_goroutines`
+const Doc = `This is an augmented version of the loopanalyzer found in the
+standard library. It handles nested loops.`
 
 var Analyzer = &analysis.Analyzer{
-	Name:     "loopclosure",
+	Name:     "loopclosure-augmented",
 	Doc:      Doc,
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 	Run:      run,

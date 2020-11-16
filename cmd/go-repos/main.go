@@ -38,7 +38,7 @@ func main() {
 	// setup the OAuth2 client.
 	ctx := context.Background()
 	ts := oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: "d00caa3c08677d9ff4ab0d087ac6f2fc2025c74a"},
+		&oauth2.Token{AccessToken: "OMITTED"},
 	)
 	tc := oauth2.NewClient(ctx, ts)
 	client := github.NewClient(tc)
