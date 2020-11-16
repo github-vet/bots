@@ -15,16 +15,6 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
-// TODO(adonovan): also report an error for the following structure,
-// which is often used to ensure that deferred calls do not accumulate
-// in a loop:
-//
-//	for i, x := range c {
-//		func() {
-//			...reference to i or x...
-//		}()
-//	}
-
 const Doc = `check references to loop variables from within nested functions
 This analyzer checks for references to loop variables from within a
 function literal inside the loop body. It checks only instances where
