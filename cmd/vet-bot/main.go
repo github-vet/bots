@@ -1,12 +1,17 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 
@@ -29,7 +34,7 @@ func main() {
 	}
 	vetBot := NewVetBot(ghToken)
 
-	VetRepository(vetBot, Repository{"docker", "engine"})
+	VetRepositoryBulk(vetBot, Repository{"kalexmills", "bad-go"})
 }
 
 type Repository struct {
@@ -62,74 +67,68 @@ type VetResult struct {
 	End          token.Position
 }
 
-func VetRepository(bot *VetBot, repo Repository) {
-	// TODO: handle rate limits (sad)... wrap up the GH client inside something a bit smarter.
-
-	// retrieve the default branch for the repository (which may not be 'master' or 'main')
-	r, _, err := bot.client.Repositories.Get(bot.ctx, repo.Owner, repo.Repo)
+func VetRepositoryBulk(bot *VetBot, repo Repository) {
+	rootCommitID, err := GetRootCommitID(bot, repo)
 	if err != nil {
-		log.Printf("failed to get repo: %v", err)
+		log.Printf("failed to retrieve root commit ID for repo %s/%s", repo.Owner, repo.Repo)
 		return
 	}
-	defaultBranch := r.GetDefaultBranch()
-
-	// retrieve the root commit of the default branch for the repository
-	branch, _, err := bot.client.Repositories.GetBranch(bot.ctx, repo.Owner, repo.Repo, defaultBranch)
+	url, _, err := bot.client.Repositories.GetArchiveLink(bot.ctx, repo.Owner, repo.Repo, github.Tarball, nil)
 	if err != nil {
-		log.Printf("failed to get default branch: %v", err)
+		log.Printf("failed to get tar link for %s/%s: %v", repo.Owner, repo.Repo, err)
 		return
 	}
-	rootSha := branch.GetCommit().GetCommit().GetTree().GetSHA()
-	rootCommitID := branch.GetCommit().GetSHA()
-
-	// get a recursive list of all files found under the root commit.
-	tree, _, err := bot.client.Git.GetTree(bot.ctx, repo.Owner, repo.Repo, rootSha, true)
+	fmt.Println(url.String())
+	resp, err := http.Get(url.String())
 	if err != nil {
-		log.Printf("failed to get tree: %v", err)
+		log.Printf("failed to download tar contents: %v", err)
 		return
 	}
-
+	defer resp.Body.Close()
+	unzipped, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		log.Printf("unable to initialize unzip stream: %v", err)
+		return
+	}
+	reader := tar.NewReader(unzipped)
 	fset := token.NewFileSet()
-	var files []*ast.File
-
-	// retrieve and parse the repository contents one file at a time.
-	for _, content := range tree.Entries {
-		if strings.HasSuffix(content.GetPath(), ".pb.go") {
-			continue // special case to ignore
+	reporter := ReportFinding(bot, fset, rootCommitID, repo)
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
 		}
-		if strings.HasSuffix(content.GetPath(), ".go") {
-			log.Printf("retrieving file: %s", content.GetPath())
-
-			bytes, _, err := bot.client.Git.GetBlobRaw(bot.ctx, repo.Owner, repo.Repo, content.GetSHA())
+		if err != nil {
+			log.Printf("failed to read tar entry")
+			break
+		}
+		name := header.Name
+		split := strings.SplitN(name, "/", 2)
+		if len(split) < 2 {
+			continue // we don't care about this file
+		}
+		realName := split[1]
+		switch header.Typeflag {
+		case tar.TypeReg:
+			log.Printf("found file %s", realName)
+			bytes, err := ioutil.ReadAll(reader)
 			if err != nil {
-				log.Printf("fatal error getting file %s", content.GetPath())
-				continue
+				log.Printf("error reading contents of %s: %v", realName, err)
 			}
-
-			file, err := parser.ParseFile(fset, content.GetPath(), string(bytes), parser.AllErrors)
-			if err != nil {
-				log.Printf("error when parsing %s: %v\n", content.GetPath(), err)
-				continue
-			}
-			files = append(files, file)
+			VetFile(bytes, realName, fset, reporter)
 		}
 	}
+}
 
-	// TODO: since we can do the analysis without type-checking, we don't need to read the entire repo before we even start (anymore).
-	//       move this analysis into the above loop so we don't have to keep around an ever-growing FileSet and can run in an even smaller memory footprint.
-
-	// run a static code analysis across the entire repo
+func VetFile(contents []byte, path string, fset *token.FileSet, onFind func(analysis.Diagnostic)) {
+	file, err := parser.ParseFile(fset, path, string(contents), parser.AllErrors)
+	if err != nil {
+		log.Printf("failed to parse file %s: %v", path, err)
+	}
 	pass := analysis.Pass{
-		Fset:  fset,
-		Files: files,
-		Report: func(d analysis.Diagnostic) {
-			HandleVetResult(bot, VetResult{
-				Repository:   repo,
-				RootCommitID: rootCommitID,
-				Start:        fset.Position(d.Pos),
-				End:          fset.Position(d.End),
-			})
-		},
+		Fset:     fset,
+		Files:    []*ast.File{file},
+		Report:   onFind,
 		ResultOf: make(map[*analysis.Analyzer]interface{}),
 	}
 	inspection, err := inspect.Analyzer.Run(&pass)
@@ -143,8 +142,36 @@ func VetRepository(bot *VetBot, repo Repository) {
 	}
 }
 
+func GetRootCommitID(bot *VetBot, repo Repository) (string, error) {
+	r, _, err := bot.client.Repositories.Get(bot.ctx, repo.Owner, repo.Repo)
+	if err != nil {
+		log.Printf("failed to get repo: %v", err)
+		return "", err
+	}
+	defaultBranch := r.GetDefaultBranch()
+
+	// retrieve the root commit of the default branch for the repository
+	branch, _, err := bot.client.Repositories.GetBranch(bot.ctx, repo.Owner, repo.Repo, defaultBranch)
+	if err != nil {
+		log.Printf("failed to get default branch: %v", err)
+		return "", err
+	}
+	return branch.GetCommit().GetSHA(), nil
+}
+
+func ReportFinding(bot *VetBot, fset *token.FileSet, rootCommitID string, repo Repository) func(analysis.Diagnostic) {
+	return func(d analysis.Diagnostic) {
+		HandleVetResult(bot, VetResult{
+			Repository:   repo,
+			RootCommitID: rootCommitID,
+			Start:        fset.Position(d.Pos),
+			End:          fset.Position(d.End),
+		})
+	}
+}
+
 func HandleVetResult(bot *VetBot, result VetResult) {
-	// TODO: record this finding in structured form some place.
+	// TODO: record this finding as structured data somewhere.
 	iss, _, err := bot.client.Issues.Create(bot.ctx, FindingsOwner, FindingsRepo, CreateIssueRequest(result))
 	if err != nil {
 		log.Printf("error opening new issue: %v", err)
