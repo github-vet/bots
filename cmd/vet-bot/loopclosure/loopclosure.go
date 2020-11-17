@@ -115,7 +115,7 @@ func inspectLoopBody(n ast.Node, outerVars []LoopVar, pass *analysis.Pass) {
 				inspectFuncLit(lit)
 			}
 
-		// check nested loops as well (O(n^2) for deeply nested loops where n is the nesting depth!)
+		// check nested loops as well
 		case *ast.RangeStmt:
 			inspectLoopBody(s, loopVars, pass)
 		case *ast.ForStmt:
