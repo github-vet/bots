@@ -21,6 +21,7 @@ const FindingsOwner = "kalexmills"
 const FindingsRepo = "rangeloop-test-repo"
 
 func main() {
+	// TODO: uniformly sample from some source of repositories and vet them one at a time.
 	ghToken, ok := os.LookupEnv("GITHUB_TOKEN")
 
 	if !ok {
