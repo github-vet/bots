@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package loopclosure defines an Analyzer that checks for references to
-// enclosing loop variables from within nested functions.
+// A modified version of the code found in the Golang standard library which handles nested loops.
 package loopclosure
 
 import (
@@ -16,7 +15,7 @@ import (
 )
 
 const Doc = `This is an augmented version of the loopanalyzer found in the
-standard library. It handles nested loops.`
+standard library. It handles nested loops (albeit in an expensive sort of way).`
 
 var Analyzer = &analysis.Analyzer{
 	Name:     "loopclosure-augmented",
@@ -116,7 +115,7 @@ func inspectLoopBody(n ast.Node, outerVars []LoopVar, pass *analysis.Pass) {
 				inspectFuncLit(lit)
 			}
 
-		// check nested loops as well (but this is inefficient for deeply nested loops)
+		// check nested loops as well (O(n^2) for deeply nested loops where n is the nesting depth!)
 		case *ast.RangeStmt:
 			inspectLoopBody(s, loopVars, pass)
 		case *ast.ForStmt:

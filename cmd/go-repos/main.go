@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"strconv"
@@ -37,8 +38,9 @@ func main() {
 
 	// setup the OAuth2 client.
 	ctx := context.Background()
+	token, err := ioutil.ReadFile("token.txt")
 	ts := oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: "OMITTED"},
+		&oauth2.Token{AccessToken: string(token)},
 	)
 	tc := oauth2.NewClient(ctx, ts)
 	client := github.NewClient(tc)
