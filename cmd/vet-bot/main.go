@@ -22,8 +22,8 @@ import (
 	"golang.org/x/tools/go/analysis/passes/inspect"
 )
 
-const FindingsOwner = "kalexmills"
-const FindingsRepo = "rangeloop-test-repo"
+const findingsOwner = "kalexmills"
+const findingsRepo = "rangeloop-test-repo"
 
 func main() {
 	// TODO: uniformly sample from some source of repositories and vet them one at a time.
@@ -34,14 +34,16 @@ func main() {
 	}
 	vetBot := NewVetBot(ghToken)
 
-	VetRepositoryBulk(vetBot, Repository{"kalexmills", "bad-go"})
+	VetRepositoryBulk(vetBot, Repository{"docker", "engine"})
 }
 
+// Repository encapsulates the information needed to lookup a GitHub repository.
 type Repository struct {
 	Owner string
 	Repo  string
 }
 
+// VetBot wraps the GitHub client and context used for all GitHub API requests.
 type VetBot struct {
 	ctx    context.Context
 	client *github.Client
@@ -67,6 +69,7 @@ type VetResult struct {
 	End          token.Position
 }
 
+// VetRepositoryBulk streams the contents of a Github repository as a tarball, analyzes each go file, and reports the results.
 func VetRepositoryBulk(bot *VetBot, repo Repository) {
 	rootCommitID, err := GetRootCommitID(bot, repo)
 	if err != nil {
@@ -105,12 +108,15 @@ func VetRepositoryBulk(bot *VetBot, repo Repository) {
 		name := header.Name
 		split := strings.SplitN(name, "/", 2)
 		if len(split) < 2 {
-			continue // we don't care about this file
+			continue // we only care about files in a subdirectory (due to how GitHub returns archives).
 		}
 		realName := split[1]
 		switch header.Typeflag {
 		case tar.TypeReg:
-			log.Printf("found file %s", realName)
+			if IgnoreFile(realName) {
+				continue
+			}
+			log.Printf("found interesting file %s", realName)
 			bytes, err := ioutil.ReadAll(reader)
 			if err != nil {
 				log.Printf("error reading contents of %s: %v", realName, err)
@@ -120,6 +126,15 @@ func VetRepositoryBulk(bot *VetBot, repo Repository) {
 	}
 }
 
+// IgnoreFile returns true if the file should be ignored.
+func IgnoreFile(filename string) bool {
+	if strings.HasSuffix(filename, ".pb.go") {
+		return true
+	}
+	return !strings.HasSuffix(filename, ".go")
+}
+
+// VetFile parses and runs static analyis on the file contents it is passed.
 func VetFile(contents []byte, path string, fset *token.FileSet, onFind func(analysis.Diagnostic)) {
 	file, err := parser.ParseFile(fset, path, string(contents), parser.AllErrors)
 	if err != nil {
@@ -142,6 +157,7 @@ func VetFile(contents []byte, path string, fset *token.FileSet, onFind func(anal
 	}
 }
 
+// GetRootCommitID retrieves the root commit of the default branch of a repository.
 func GetRootCommitID(bot *VetBot, repo Repository) (string, error) {
 	r, _, err := bot.client.Repositories.Get(bot.ctx, repo.Owner, repo.Repo)
 	if err != nil {
@@ -159,9 +175,11 @@ func GetRootCommitID(bot *VetBot, repo Repository) (string, error) {
 	return branch.GetCommit().GetSHA(), nil
 }
 
+// ReportFinding curries several parameters into an appopriate Diagnostic report function.
 func ReportFinding(bot *VetBot, fset *token.FileSet, rootCommitID string, repo Repository) func(analysis.Diagnostic) {
 	return func(d analysis.Diagnostic) {
-		HandleVetResult(bot, VetResult{
+		// split off into a separate thread so any API call to create the issue doesn't block the remaining analysis.
+		go HandleVetResult(bot, VetResult{
 			Repository:   repo,
 			RootCommitID: rootCommitID,
 			Start:        fset.Position(d.Pos),
@@ -170,9 +188,10 @@ func ReportFinding(bot *VetBot, fset *token.FileSet, rootCommitID string, repo R
 	}
 }
 
+// HandleVetResult opens up a new GitHub issue with the result of the findings.
 func HandleVetResult(bot *VetBot, result VetResult) {
 	// TODO: record this finding as structured data somewhere.
-	iss, _, err := bot.client.Issues.Create(bot.ctx, FindingsOwner, FindingsRepo, CreateIssueRequest(result))
+	iss, _, err := bot.client.Issues.Create(bot.ctx, findingsOwner, findingsRepo, CreateIssueRequest(result))
 	if err != nil {
 		log.Printf("error opening new issue: %v", err)
 		return
@@ -180,6 +199,8 @@ func HandleVetResult(bot *VetBot, result VetResult) {
 	log.Printf("opened new issue at %s", iss.GetURL())
 }
 
+// CreateIssueRequest writes the header and description of the GitHub issue which is opened with the result
+// of any findings.
 func CreateIssueRequest(result VetResult) *github.IssueRequest {
 	title := fmt.Sprintf("%s/%s: ", result.Owner, result.Repo)
 	permalink := fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s#L%d-L%d", result.Owner, result.Repo, result.RootCommitID, result.Start.Filename, result.Start.Line, result.End.Line)
