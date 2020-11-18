@@ -33,6 +33,7 @@ func NewRepositorySampler(allFile string, visitedFile string) (*RepositorySample
 			delete(repos, repo)
 		}
 	}
+	//repoList := make([]Repository, 0 len(repos))
 	var repoList []Repository
 	for repo := range repos {
 		repoList = append(repoList, repo)
@@ -120,7 +121,7 @@ func readRepositoryList(filename string) (map[Repository]struct{}, error) {
 	return result, nil
 }
 
-type MutexWriter struct {
+type MutexWriter struct { // TODO: this might be a bit much; we already have a Mutex in RepositorySampler
 	m sync.Mutex
 	w io.WriteCloser
 }

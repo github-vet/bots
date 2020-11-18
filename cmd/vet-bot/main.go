@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"time"
 
 	"github.com/google/go-github/github"
 	"golang.org/x/oauth2"
@@ -13,7 +14,7 @@ const findingsOwner = "kalexmills"
 const findingsRepo = "rangeloop-test-repo"
 
 func main() {
-	sampler, err := NewRepositorySampler("repos.csv", "visited.csv")
+	/*sampler, err := NewRepositorySampler("repos.csv", "visited.csv")
 	defer sampler.Close()
 	if err != nil {
 		log.Fatalf("can't start sampler: %v", err)
@@ -32,23 +33,27 @@ func main() {
 		if err != nil {
 			break
 		}
-	}
+	}*/
 
 	// TODO: uniformly sample from some source of repositories and vet them one at a time.
-	/*ghToken, ok := os.LookupEnv("GITHUB_TOKEN")
+	ghToken, ok := os.LookupEnv("GITHUB_TOKEN")
 
 	if !ok {
 		log.Fatalln("could not find GITHUB_TOKEN environment variable")
 	}
 	vetBot := NewVetBot(ghToken)
+	issueReporter := NewIssueReporter(vetBot, "ignored")
 
-	VetRepositoryBulk(vetBot, Repository{"docker", "engine"})*/
+	VetRepositoryBulk(vetBot, issueReporter, Repository{"kalexmills", "bad-go"})
+
+	time.Sleep(5 * time.Second) // TODO: not this; we need to wait for all goroutines to finish
 }
 
 // VetBot wraps the GitHub client and context used for all GitHub API requests.
 type VetBot struct {
-	ctx    context.Context
-	client *github.Client
+	ctx        context.Context
+	client     *github.Client
+	reportFunc func(bot *VetBot, result VetResult)
 }
 
 // NewVetBot creates a new bot using the provided GitHub token for access.
