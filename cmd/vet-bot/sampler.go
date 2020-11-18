@@ -33,8 +33,7 @@ func NewRepositorySampler(allFile string, visitedFile string) (*RepositorySample
 			delete(repos, repo)
 		}
 	}
-	//repoList := make([]Repository, 0 len(repos))
-	var repoList []Repository
+	repoList := make([]Repository, 0, len(repos))
 	for repo := range repos {
 		repoList = append(repoList, repo)
 	}
@@ -46,8 +45,8 @@ func NewRepositorySampler(allFile string, visitedFile string) (*RepositorySample
 	mw := NewMutexWriter(visitedWriter)
 	return &RepositorySampler{
 		unvisited:   repoList,
-		visitedFile: mw,
-		csvWriter:   csv.NewWriter(mw),
+		visitedFile: &mw,
+		csvWriter:   csv.NewWriter(&mw),
 	}, nil
 }
 
@@ -83,8 +82,7 @@ func (gs *RepositorySampler) sampleAndReturn() Repository {
 	defer gs.m.Unlock()
 	idx := rand.Intn(len(gs.unvisited))
 	repo := gs.unvisited[idx]
-	gs.unvisited[idx] = gs.unvisited[len(gs.unvisited)-1]
-	gs.unvisited = gs.unvisited[:len(gs.unvisited)-1]
+	gs.unvisited = append(gs.unvisited[:idx], gs.unvisited[idx+1:]...)
 	return repo
 }
 
@@ -126,8 +124,8 @@ type MutexWriter struct { // TODO: this might be a bit much; we already have a M
 	w io.WriteCloser
 }
 
-func NewMutexWriter(w io.WriteCloser) *MutexWriter {
-	return &MutexWriter{w: w}
+func NewMutexWriter(w io.WriteCloser) MutexWriter {
+	return MutexWriter{w: w}
 }
 
 func (mw *MutexWriter) Write(b []byte) (int, error) {

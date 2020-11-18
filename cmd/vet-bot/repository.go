@@ -150,7 +150,8 @@ func ReportFinding(ir *IssueReporter, fset *token.FileSet, rootCommitID string, 
 	return func(path string, contents []byte) func(analysis.Diagnostic) {
 		return func(d analysis.Diagnostic) {
 			// split off into a separate thread so any API call to create the issue doesn't block the remaining analysis.
-			go ir.ReportVetResult(VetResult{
+
+			ir.ReportVetResult(VetResult{
 				Repository:   repo,
 				FilePath:     path,
 				RootCommitID: rootCommitID,

@@ -18,20 +18,25 @@ type IssueReporter struct {
 	csvWriter *csv.Writer
 }
 
-func NewIssueReporter(bot *VetBot, issueFile string) *IssueReporter {
-	return &IssueReporter{
+func NewIssueReporter(bot *VetBot, issueFile string) IssueReporter {
+	return IssueReporter{
 		bot: bot,
 	}
 }
 
 func (ir *IssueReporter) ReportVetResult(result VetResult) {
-	iss, _, err := ir.bot.client.Issues.Create(ir.bot.ctx, findingsOwner, findingsRepo, CreateIssueRequest(result))
-	if err != nil {
-		log.Printf("error opening new issue: %v", err)
-		return
-	}
-	// TODO: record this finding and issue number (and repo) as structured data somewhere.
-	log.Printf("opened new issue at %s", iss.GetURL())
+	ir.bot.wg.Add(1)
+	go func() {
+		issueRequest := CreateIssueRequest(result)
+		iss, _, err := ir.bot.client.Issues.Create(ir.bot.ctx, findingsOwner, findingsRepo, &issueRequest)
+		if err != nil {
+			log.Printf("error opening new issue: %v", err)
+			return
+		}
+		// TODO: record this finding and issue number (and repo) as structured data somewhere.
+		log.Printf("opened new issue at %s", iss.GetURL())
+		ir.bot.wg.Done()
+	}()
 }
 
 // TODO: link to README in the issues repo.
@@ -64,7 +69,7 @@ func init() {
 
 // CreateIssueRequest writes the header and description of the GitHub issue which is opened with the result
 // of any findings.
-func CreateIssueRequest(result VetResult) *github.IssueRequest {
+func CreateIssueRequest(result VetResult) github.IssueRequest {
 
 	slocCount := result.End.Line - result.Start.Line
 	title := fmt.Sprintf("%s/%s: %s; %d LoC", result.Owner, result.Repo, result.FilePath, slocCount)
@@ -72,7 +77,7 @@ func CreateIssueRequest(result VetResult) *github.IssueRequest {
 	fmt.Println(body)
 
 	// TODO: labels based on lines of code
-	return &github.IssueRequest{
+	return github.IssueRequest{
 		Title: &title,
 		Body:  &body,
 	}
