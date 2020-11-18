@@ -18,7 +18,10 @@ import (
 // 699280 Golang repositories are on GitHub
 
 const pageSize = 100
+const expectedClockSkewMillis = 10
 
+// go-repos is a slow process which uses the Search API to find a bunch of unique Golang
+// repos using a cheap trick. A better trick is now known. Do not use this.
 func main() {
 	if len(os.Args) < 3 {
 		fmt.Println("usage: go run main.go [start-key] [outfile]")

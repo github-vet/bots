@@ -29,15 +29,17 @@ func main() {
 		if err == io.EOF {
 			break
 		}
-		if err != nil || len(record) != 4 {
+		if err != nil || len(record) != 5 {
 			continue
 		}
-		gitURL := record[1]
-		fullname := strings.Replace(strings.Replace(gitURL, "git://github.com/", "", 1), ".git", "", 1)
+		coords := strings.Split(record[4], "/")
+		if len(coords) != 2 {
+			continue
+		}
 
-		record = append(record, fullname)
+		owner := coords[0]
+		repo := coords[1]
 
-		writer.Write(record)
+		writer.Write([]string{owner, repo})
 	}
-
 }
