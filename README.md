@@ -17,7 +17,7 @@ But why build a bot?
 
 ## Range Loop Capture Considered Dangerous
 
-Members of the Go language team have indicated a willingness to modify the behavior of range loop variable capture to make the behavior of go more intuitive. This change could theoretically be made despite the [strong backwards compatibility guarantee](https://golang.org/doc/go1compat) of Go version 1, **only if** we can ensure that the change will not result in incorrect behavior in current programs.
+Members of the Go language team have indicated a willingness to modify the behavior of range loop variable capture to make the behavior of Go more intuitive. This change could theoretically be made despite the [strong backwards compatibility guarantee](https://golang.org/doc/go1compat) of Go version 1, **only if** we can ensure that the change will not result in incorrect behavior in current programs.
 
 To make that determination, a large number of "real world" `go` programs would need to be vetted. If we find that, in every case, the current compiler behavior results in an undesirable outcome (aka bugs), we can consider making a change to the language.
 
@@ -31,4 +31,4 @@ The static analysis procedure uses only syntactic information produced by the Go
 
 ## How Can I Help?
 
-Head over to [the findings repository](https://github.com/github-vet/rangeloop-findings) to dive in and help! 
+Head over to [the findings repository](https://github.com/github-vet/rangeloop-findings) to dive in and help! We are also looking for Golang experts to provide high-quality review of our findings. If you're an expert, please apply for consideration and we'll happily assign you some code to read!

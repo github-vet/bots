@@ -3,8 +3,11 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/md5"
+	"encoding/base64"
 	"encoding/csv"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -13,16 +16,24 @@ import (
 	"github.com/google/go-github/github"
 )
 
+type Md5Checksum [md5.Size]byte
+
 // IssueReporter reports issues and maintains a local csv file to document any issues opened.
 type IssueReporter struct {
 	bot       *VetBot
 	issueFile *MutexWriter
 	csvWriter *csv.Writer
+	md5s      map[Md5Checksum]struct{} // hashes of the code reported to protect against vendored / duplicated code
 }
 
 // NewIssueReporter constructs a new issue reporter with the provided bot. The issue file will be
 // created if it doesn't already exist. It stores a list of issues which have already been opened.
 func NewIssueReporter(bot *VetBot, issueFile string) (*IssueReporter, error) {
+	md5s, err := readMd5s(issueFile)
+	if err != nil {
+		return nil, err
+	}
+
 	issueWriter, err := os.OpenFile(issueFile, os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		return nil, err
@@ -32,6 +43,7 @@ func NewIssueReporter(bot *VetBot, issueFile string) (*IssueReporter, error) {
 		bot:       bot,
 		issueFile: &mw,
 		csvWriter: csv.NewWriter(&mw),
+		md5s:      md5s,
 	}, nil
 }
 
@@ -39,8 +51,45 @@ func (ir *IssueReporter) Close() error {
 	return ir.issueFile.Close()
 }
 
+func readMd5s(filename string) (map[Md5Checksum]struct{}, error) {
+	result := make(map[Md5Checksum]struct{})
+	if _, err := os.Stat(filename); err != nil {
+		return result, nil
+	}
+	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	reader := csv.NewReader(file)
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(record) != 4 {
+			log.Printf("malformed line in repository list %s", filename)
+			continue
+		}
+		var md5Sum Md5Checksum
+		base64.StdEncoding.Decode(md5Sum[:], []byte(record[3]))
+		result[md5Sum] = struct{}{}
+	}
+	return result, nil
+}
+
 // ReportVetResult asynchronously creates a new GitHub issue to report the findings of the VetResult.
 func (ir *IssueReporter) ReportVetResult(result VetResult) {
+	md5Sum := md5.Sum(result.FileContents)
+	if _, ok := ir.md5s[md5Sum]; ok {
+		fmt.Println("found duplicated code")
+		return
+	}
+	ir.md5s[md5Sum] = struct{}{}
+
 	ir.bot.wg.Add(1)
 	go func() {
 		issueRequest := CreateIssueRequest(result)
@@ -57,7 +106,9 @@ func (ir *IssueReporter) ReportVetResult(result VetResult) {
 
 func (ir *IssueReporter) writeIssueToFile(result VetResult, iss *github.Issue) error {
 	issueNum := fmt.Sprintf("%d", iss.GetNumber())
-	err := ir.csvWriter.Write([]string{findingsOwner, findingsRepo, issueNum})
+	md5Sum := md5.Sum(result.FileContents)
+	md5Str := base64.StdEncoding.EncodeToString(md5Sum[:])
+	err := ir.csvWriter.Write([]string{findingsOwner, findingsRepo, issueNum, md5Str})
 	ir.csvWriter.Flush()
 	if err != nil {
 		return err
@@ -148,8 +199,10 @@ Found a possible issue in [{{.Repository.Owner}}/{{.Repository.Repo}}](https://w
 The below snippet of Go code triggered static analysis which searches for goroutines and/or defer statements
 which capture loop variables.
 
+[Click here to see the code in its original context.]({{.Link}})
+
 <details>
-<summary>Click here to show {{.SlocCount}} line(s) of Go.</summary>
+<summary>Click here to show the {{.SlocCount}} line(s) of Go which triggered the analyzer.</summary>
 
 ~~~go
 {{.Quote}}
