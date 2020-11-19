@@ -43,6 +43,7 @@ func main() {
 			return VetRepositoryBulk(&vetBot, issueReporter, r)
 		})
 		if err != nil {
+			log.Printf("stopping scan due to error :%v", err)
 			break
 		}
 	}

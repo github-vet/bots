@@ -56,7 +56,8 @@ func NewRepositorySampler(allFile string, visitedFile string) (*RepositorySample
 // Sample is used to sample a repository from the list of repositories managed by this sampler. A handler function
 // is passed which receives the repository sampled from the list. If the handler returns nil, the sampled repository
 // is removed from the list and is not visited again. If the handler returns an error, the sampled repository is
-// not removed from the list and may be visited again.
+// not removed from the list and may be visited again. Sample only returns an error itself if no further samples should
+// be made.
 func (gs *RepositorySampler) Sample(handler func(Repository) error) error {
 	if len(gs.unvisited) == 0 {
 		return errors.New("no unvisited repositories left to sample")
@@ -68,12 +69,14 @@ func (gs *RepositorySampler) Sample(handler func(Repository) error) error {
 		gs.m.Lock()
 		defer gs.m.Unlock()
 		gs.unvisited = append(gs.unvisited, repo)
-		return err
+		log.Printf("repo %s/%s will be tried again despite error: %v", repo.Owner, repo.Repo, err)
+		return nil
 	}
 
 	err = gs.csvWriter.Write([]string{repo.Owner, repo.Repo})
 	gs.csvWriter.Flush()
 	if err != nil {
+		log.Fatalf("could not write to output file: %v", err)
 		return err
 	}
 	return nil
