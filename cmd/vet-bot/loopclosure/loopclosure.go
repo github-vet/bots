@@ -53,6 +53,7 @@ func inspectLoopBody(n ast.Node, outerVars []LoopVar, pass *analysis.Pass) {
 			})
 		}
 	}
+	forStmt := n
 	var body *ast.BlockStmt
 	switch n := n.(type) {
 	case *ast.RangeStmt:
@@ -88,7 +89,7 @@ func inspectLoopBody(n ast.Node, outerVars []LoopVar, pass *analysis.Pass) {
 			}
 			for _, v := range loopVars {
 				if v.ident.Obj == id.Obj {
-					pass.ReportRangef(v.body, "loop variable %s captured by func literal",
+					pass.ReportRangef(forStmt, "loop variable %s captured by func literal",
 						id.Name)
 				}
 			}

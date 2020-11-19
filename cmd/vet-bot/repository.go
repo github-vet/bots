@@ -41,31 +41,32 @@ func (vr VetResult) Permalink() string {
 }
 
 // VetRepositoryBulk streams the contents of a Github repository as a tarball, analyzes each go file, and reports the results.
-func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) {
+func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) error {
 	rootCommitID, err := GetRootCommitID(bot, repo)
 	if err != nil {
 		log.Printf("failed to retrieve root commit ID for repo %s/%s", repo.Owner, repo.Repo)
-		return
+		return err
 	}
 	url, _, err := bot.client.Repositories.GetArchiveLink(bot.ctx, repo.Owner, repo.Repo, github.Tarball, nil)
 	if err != nil {
 		log.Printf("failed to get tar link for %s/%s: %v", repo.Owner, repo.Repo, err)
-		return
+		return err
 	}
 	resp, err := http.Get(url.String())
 	if err != nil {
 		log.Printf("failed to download tar contents: %v", err)
-		return
+		return err
 	}
 	defer resp.Body.Close()
 	unzipped, err := gzip.NewReader(resp.Body)
 	if err != nil {
 		log.Printf("unable to initialize unzip stream: %v", err)
-		return
+		return err
 	}
 	reader := tar.NewReader(unzipped)
 	fset := token.NewFileSet()
 	reporter := ReportFinding(ir, fset, rootCommitID, repo)
+	log.Printf("reading contents of %s/%s", repo.Owner, repo.Repo)
 	for {
 		header, err := reader.Next()
 		if err == io.EOF {
@@ -73,7 +74,7 @@ func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) {
 		}
 		if err != nil {
 			log.Printf("failed to read tar entry")
-			break
+			return err
 		}
 		name := header.Name
 		split := strings.SplitN(name, "/", 2)
@@ -86,7 +87,6 @@ func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) {
 			if IgnoreFile(realName) {
 				continue
 			}
-			log.Printf("found %s", realName)
 			bytes, err := ioutil.ReadAll(reader)
 			if err != nil {
 				log.Printf("error reading contents of %s: %v", realName, err)
@@ -94,6 +94,7 @@ func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) {
 			VetFile(bytes, realName, fset, reporter)
 		}
 	}
+	return nil
 }
 
 // IgnoreFile returns true if the file should be ignored.
