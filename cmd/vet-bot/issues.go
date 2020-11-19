@@ -139,7 +139,7 @@ func CreateIssueRequest(result VetResult) github.IssueRequest {
 func Description(result VetResult) string {
 	permalink := fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s#L%d-L%d", result.Owner, result.Repo, result.RootCommitID, result.Start.Filename, result.Start.Line, result.End.Line)
 	quote := QuoteFinding(result)
-	slocCount := result.End.Line - result.Start.Line
+	slocCount := result.End.Line - result.Start.Line + 1
 
 	var b strings.Builder
 	err := parsed.Execute(&b, IssueResult{
