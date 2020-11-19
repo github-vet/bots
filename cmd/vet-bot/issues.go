@@ -5,25 +5,28 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
+	"html/template"
 	"log"
 	"strings"
-	"text/template"
 
 	"github.com/google/go-github/github"
 )
 
+// IssueReporter reports issues and maintains a local csv file to document any issues opened.
 type IssueReporter struct {
 	bot       *VetBot
 	issueFile *MutexWriter
 	csvWriter *csv.Writer
 }
 
+// NewIssueReporter constructs a new issue reporter with the provided bot.
 func NewIssueReporter(bot *VetBot, issueFile string) IssueReporter {
 	return IssueReporter{
 		bot: bot,
 	}
 }
 
+// ReportVetResult asynchronously creates a new GitHub issue to report the findings of the VetResult.
 func (ir *IssueReporter) ReportVetResult(result VetResult) {
 	ir.bot.wg.Add(1)
 	go func() {
@@ -37,34 +40,6 @@ func (ir *IssueReporter) ReportVetResult(result VetResult) {
 		log.Printf("opened new issue at %s", iss.GetURL())
 		ir.bot.wg.Done()
 	}()
-}
-
-// TODO: link to README in the issues repo.
-const IssueTemplate string = `
-Found a possible issue in [{{.Repository.Owner}}/{{.Repository.Repo}}](https://www.github.com/{{.Repository.Owner}}/{{.Repository.Repo}}) at [{{.FilePath}}]({{.Link}})
-
-The below snippet of Go code triggered static analysis which searches for goroutines and/or defer statements
-which capture loop variables.
-
-<details>
-<summary>Click here to show the {{.SlocCount}} line(s) of Go.</summary>
-
-~~~go
-{{.Quote}}
-~~~
-</details>
-
-commit ID: {{.RootCommitID}}
-`
-
-var parsed *template.Template
-
-func init() {
-	var err error
-	parsed, err = template.New("issue").Parse(IssueTemplate)
-	if err != nil {
-		panic(err)
-	}
 }
 
 // CreateIssueRequest writes the header and description of the GitHub issue which is opened with the result
@@ -85,6 +60,7 @@ func CreateIssueRequest(result VetResult) github.IssueRequest {
 
 var tildifier *strings.Replacer = strings.NewReplacer("~", "`")
 
+// Description writes the description of an issue, given a VetResult.
 func Description(result VetResult) string {
 	permalink := fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s#L%d-L%d", result.Owner, result.Repo, result.RootCommitID, result.Start.Filename, result.Start.Line, result.End.Line)
 	quote := QuoteFinding(result)
@@ -103,6 +79,7 @@ func Description(result VetResult) string {
 	return tildifier.Replace(buf.String())
 }
 
+// QuoteFinding retrieves the snippet of code that caused the VetResult.
 func QuoteFinding(result VetResult) string {
 	lineStart, lineEnd := result.Start.Line, result.End.Line
 	sc := bufio.NewScanner(bytes.NewReader(result.FileContents))
@@ -117,9 +94,40 @@ func QuoteFinding(result VetResult) string {
 	return sb.String()
 }
 
+// IssueResult enriches a VetResult with some additional information.
 type IssueResult struct {
 	VetResult
 	Link      string
 	Quote     string
 	SlocCount int
+}
+
+// IssueResultTemplate is the template used to file a GitHub issue. It's meant to be invoked with an
+// IssueResult.
+// TODO: link to the README in the issues repository for more information.
+const IssueResultTemplate string = `
+Found a possible issue in [{{.Repository.Owner}}/{{.Repository.Repo}}](https://www.github.com/{{.Repository.Owner}}/{{.Repository.Repo}}) at [{{.FilePath}}]({{.Link}})
+
+The below snippet of Go code triggered static analysis which searches for goroutines and/or defer statements
+which capture loop variables.
+
+<details>
+<summary>Click here to show {{.SlocCount}} line(s) of Go.</summary>
+
+~~~go
+{{.Quote}}
+~~~
+</details>
+
+commit ID: {{.RootCommitID}}
+`
+
+var parsed *template.Template
+
+func init() {
+	var err error
+	parsed, err = template.New("issue").Parse(IssueResultTemplate)
+	if err != nil {
+		panic(err)
+	}
 }
