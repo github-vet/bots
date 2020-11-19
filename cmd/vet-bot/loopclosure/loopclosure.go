@@ -6,7 +6,6 @@
 package loopclosure
 
 import (
-	"fmt"
 	"go/ast"
 
 	"golang.org/x/tools/go/analysis"
@@ -79,10 +78,6 @@ func inspectLoopBody(n ast.Node, outerVars []LoopVar, pass *analysis.Pass) {
 
 	inspectFuncLit := func(lit *ast.FuncLit) {
 		ast.Inspect(lit.Body, func(n ast.Node) bool {
-			slice, ok := n.(*ast.SliceExpr)
-			if ok {
-				fmt.Printf("%v\n", slice)
-			}
 			id, ok := n.(*ast.Ident)
 			if !ok || id.Obj == nil {
 				return true

@@ -52,7 +52,6 @@ func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) {
 		log.Printf("failed to get tar link for %s/%s: %v", repo.Owner, repo.Repo, err)
 		return
 	}
-	fmt.Println(url.String())
 	resp, err := http.Get(url.String())
 	if err != nil {
 		log.Printf("failed to download tar contents: %v", err)
@@ -87,7 +86,7 @@ func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) {
 			if IgnoreFile(realName) {
 				continue
 			}
-			log.Printf("found interesting file %s", realName)
+			log.Printf("found %s", realName)
 			bytes, err := ioutil.ReadAll(reader)
 			if err != nil {
 				log.Printf("error reading contents of %s: %v", realName, err)

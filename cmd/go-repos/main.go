@@ -159,10 +159,8 @@ func ScrapePage(ctx context.Context, client *github.Client, maxCreateDateKnown t
 	opts.PerPage = pageSize
 	opts.Page = page
 	dateStr := maxCreateDateKnown.Format("2006-01-02T15:04")
-	fmt.Println(maxCreateDateKnown)
 	repos, _, err := client.Search.Repositories(ctx, "language:Go sort:created-asc created:>"+dateStr, &opts)
 	if err != nil {
-		fmt.Println(err)
 		return nil, false, err
 	}
 	if len(repos.Repositories) == 0 {

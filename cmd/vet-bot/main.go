@@ -10,11 +10,11 @@ import (
 	"golang.org/x/oauth2"
 )
 
-const findingsOwner = "kalexmills"
-const findingsRepo = "rangeloop-test-repo"
+const findingsOwner = "github-vet"
+const findingsRepo = "rangeloop-findings"
 
 func main() {
-	/*sampler, err := NewRepositorySampler("repos.csv", "visited.csv")
+	sampler, err := NewRepositorySampler("repos.csv", "visited.csv")
 	defer sampler.Close()
 	if err != nil {
 		log.Fatalf("can't start sampler: %v", err)
@@ -39,8 +39,8 @@ func main() {
 		}
 	}
 
-	vetBot.wg.Wait()*/
-	ghToken, ok := os.LookupEnv("GITHUB_TOKEN")
+	vetBot.wg.Wait()
+	/*ghToken, ok := os.LookupEnv("GITHUB_TOKEN")
 
 	if !ok {
 		log.Fatalln("could not find GITHUB_TOKEN environment variable")
@@ -52,7 +52,7 @@ func main() {
 	}
 
 	VetRepositoryBulk(&vetBot, issueReporter, Repository{"kalexmills", "bad-go"})
-	vetBot.wg.Wait()
+	vetBot.wg.Wait()*/
 }
 
 // VetBot wraps the GitHub client and context used for all GitHub API requests.

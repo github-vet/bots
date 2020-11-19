@@ -1,2 +1,4 @@
 **/token.txt
 **/*.exe
+**/*.pem
+**/*.secret
