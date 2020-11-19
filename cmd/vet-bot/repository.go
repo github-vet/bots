@@ -28,13 +28,20 @@ type Repository struct {
 // VetResult reports a few lines of code in a GitHub repository for consideration.
 type VetResult struct {
 	Repository
+	FilePath     string
 	RootCommitID string
+	FileContents []byte
 	Start        token.Position
 	End          token.Position
 }
 
+// Permalink returns the GitHub permalink which refers to the snippet of code retrieved by the VetResult.
+func (vr VetResult) Permalink() string {
+	return fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s#L%d-L%d", vr.Owner, vr.Repo, vr.RootCommitID, vr.Start.Filename, vr.Start.Line, vr.End.Line)
+}
+
 // VetRepositoryBulk streams the contents of a Github repository as a tarball, analyzes each go file, and reports the results.
-func VetRepositoryBulk(bot *VetBot, repo Repository) {
+func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) {
 	rootCommitID, err := GetRootCommitID(bot, repo)
 	if err != nil {
 		log.Printf("failed to retrieve root commit ID for repo %s/%s", repo.Owner, repo.Repo)
@@ -59,7 +66,7 @@ func VetRepositoryBulk(bot *VetBot, repo Repository) {
 	}
 	reader := tar.NewReader(unzipped)
 	fset := token.NewFileSet()
-	reporter := ReportFinding(bot, fset, rootCommitID, repo)
+	reporter := ReportFinding(ir, fset, rootCommitID, repo)
 	for {
 		header, err := reader.Next()
 		if err == io.EOF {
@@ -98,8 +105,12 @@ func IgnoreFile(filename string) bool {
 	return !strings.HasSuffix(filename, ".go")
 }
 
+// Reporter provides a means to yield a diagnostic function suitable for use by the analysis package which
+// also has access to the contents and name of the file being observed.
+type Reporter func(string, []byte) func(analysis.Diagnostic) // yay for currying!
+
 // VetFile parses and runs static analyis on the file contents it is passed.
-func VetFile(contents []byte, path string, fset *token.FileSet, onFind func(analysis.Diagnostic)) {
+func VetFile(contents []byte, path string, fset *token.FileSet, onFind Reporter) {
 	file, err := parser.ParseFile(fset, path, string(contents), parser.AllErrors)
 	if err != nil {
 		log.Printf("failed to parse file %s: %v", path, err)
@@ -107,7 +118,7 @@ func VetFile(contents []byte, path string, fset *token.FileSet, onFind func(anal
 	pass := analysis.Pass{
 		Fset:     fset,
 		Files:    []*ast.File{file},
-		Report:   onFind,
+		Report:   onFind(path, contents),
 		ResultOf: make(map[*analysis.Analyzer]interface{}),
 	}
 	inspection, err := inspect.Analyzer.Run(&pass)
@@ -140,40 +151,19 @@ func GetRootCommitID(bot *VetBot, repo Repository) (string, error) {
 }
 
 // ReportFinding curries several parameters into an appopriate Diagnostic report function.
-func ReportFinding(bot *VetBot, fset *token.FileSet, rootCommitID string, repo Repository) func(analysis.Diagnostic) {
-	return func(d analysis.Diagnostic) {
-		// split off into a separate thread so any API call to create the issue doesn't block the remaining analysis.
-		go HandleVetResult(bot, VetResult{
-			Repository:   repo,
-			RootCommitID: rootCommitID,
-			Start:        fset.Position(d.Pos),
-			End:          fset.Position(d.End),
-		})
-	}
-}
+func ReportFinding(ir *IssueReporter, fset *token.FileSet, rootCommitID string, repo Repository) Reporter {
+	return func(path string, contents []byte) func(analysis.Diagnostic) {
+		return func(d analysis.Diagnostic) {
+			// split off into a separate thread so any API call to create the issue doesn't block the remaining analysis.
 
-// HandleVetResult opens up a new GitHub issue with the result of the findings.
-func HandleVetResult(bot *VetBot, result VetResult) {
-	// TODO: record this finding as structured data somewhere.
-	iss, _, err := bot.client.Issues.Create(bot.ctx, findingsOwner, findingsRepo, CreateIssueRequest(result))
-	if err != nil {
-		log.Printf("error opening new issue: %v", err)
-		return
-	}
-	log.Printf("opened new issue at %s", iss.GetURL())
-}
-
-// CreateIssueRequest writes the header and description of the GitHub issue which is opened with the result
-// of any findings.
-func CreateIssueRequest(result VetResult) *github.IssueRequest {
-	title := fmt.Sprintf("%s/%s: ", result.Owner, result.Repo)
-	permalink := fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s#L%d-L%d", result.Owner, result.Repo, result.RootCommitID, result.Start.Filename, result.Start.Line, result.End.Line)
-
-	// TODO: make the issue prettier; include a snippet of the source and link to it
-	// Also provide some context as to why the bot thinks the code is wrong.
-	body := "Found an issue at " + permalink
-	return &github.IssueRequest{
-		Title: &title,
-		Body:  &body,
+			ir.ReportVetResult(VetResult{
+				Repository:   repo,
+				FilePath:     path,
+				RootCommitID: rootCommitID,
+				FileContents: contents,
+				Start:        fset.Position(d.Pos),
+				End:          fset.Position(d.End),
+			})
+		}
 	}
 }
