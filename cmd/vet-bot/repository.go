@@ -37,7 +37,7 @@ type VetResult struct {
 
 // Permalink returns the GitHub permalink which refers to the snippet of code retrieved by the VetResult.
 func (vr VetResult) Permalink() string {
-	fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s#L%d-L%d", vr.Owner, vr.Repo, vr.RootCommitID, vr.Start.Filename, vr.Start.Line, vr.End.Line)
+	return fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s#L%d-L%d", vr.Owner, vr.Repo, vr.RootCommitID, vr.Start.Filename, vr.Start.Line, vr.End.Line)
 }
 
 // VetRepositoryBulk streams the contents of a Github repository as a tarball, analyzes each go file, and reports the results.

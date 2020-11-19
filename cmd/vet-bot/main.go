@@ -14,39 +14,44 @@ const findingsOwner = "kalexmills"
 const findingsRepo = "rangeloop-test-repo"
 
 func main() {
-	/*
-		sampler, err := NewRepositorySampler("repos.csv", "visited.csv")
-		defer sampler.Close()
+	/*sampler, err := NewRepositorySampler("repos.csv", "visited.csv")
+	defer sampler.Close()
+	if err != nil {
+		log.Fatalf("can't start sampler: %v", err)
+	}
+
+	ghToken, ok := os.LookupEnv("GITHUB_TOKEN")
+	if !ok {
+		log.Fatalln("could not find GITHUB_TOKEN environment variable")
+	}
+	vetBot := NewVetBot(ghToken)
+	issueReporter, err := NewIssueReporter(&vetBot, "issues.csv")
+	if err != nil {
+		log.Fatalf("can't start issue reporter: %v", err)
+	}
+	for {
+		err := sampler.Sample(func(r Repository) error {
+			VetRepositoryBulk(&vetBot, issueReporter, r)
+			return nil
+		})
 		if err != nil {
-			log.Fatalf("can't start sampler: %v", err)
+			break
 		}
+	}
 
-		ghToken, ok := os.LookupEnv("GITHUB_TOKEN")
-		if !ok {
-			log.Fatalln("could not find GITHUB_TOKEN environment variable")
-		}
-		vetBot := NewVetBot(ghToken)
-		for {
-			err := sampler.Sample(func(r Repository) error {
-				VetRepositoryBulk(&vetBot, r)
-				return nil
-			})
-			if err != nil {
-				break
-			}
-		}*/
-
-	// TODO: uniformly sample from some source of repositories and vet them one at a time.
+	vetBot.wg.Wait()*/
 	ghToken, ok := os.LookupEnv("GITHUB_TOKEN")
 
 	if !ok {
 		log.Fatalln("could not find GITHUB_TOKEN environment variable")
 	}
 	vetBot := NewVetBot(ghToken)
-	issueReporter := NewIssueReporter(&vetBot, "ignored")
+	issueReporter, err := NewIssueReporter(&vetBot, "issues.csv")
+	if err != nil {
+		panic(err)
+	}
 
-	VetRepositoryBulk(&vetBot, &issueReporter, Repository{"kalexmills", "bad-go"})
-
+	VetRepositoryBulk(&vetBot, issueReporter, Repository{"kalexmills", "bad-go"})
 	vetBot.wg.Wait()
 }
 

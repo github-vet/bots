@@ -19,6 +19,9 @@ type RepositorySampler struct {
 	csvWriter   *csv.Writer
 }
 
+// NewRepositorySampler initializes the repository sampler by opening two CSV files. The first file
+// consists of the list of repositories from which to sample. The second file -- which will be created
+// if it doesn't already exist -- stores a sublist of the repositories which have already been visited.
 func NewRepositorySampler(allFile string, visitedFile string) (*RepositorySampler, error) {
 	repos, err := readRepositoryList(allFile)
 	if err != nil {
@@ -50,11 +53,10 @@ func NewRepositorySampler(allFile string, visitedFile string) (*RepositorySample
 	}, nil
 }
 
-// Sample is used to sample a repository from the list of repositories managed by this
-// sampler. A handler function is passed which receives the repository sampled from the
-// list. If the handler returns nil, the sampled repository is removed from the list and is
-// not visited again. If the handler returns an error, the sampled repository is not removed
-// from the list and may be visited again.
+// Sample is used to sample a repository from the list of repositories managed by this sampler. A handler function
+// is passed which receives the repository sampled from the list. If the handler returns nil, the sampled repository
+// is removed from the list and is not visited again. If the handler returns an error, the sampled repository is
+// not removed from the list and may be visited again.
 func (gs *RepositorySampler) Sample(handler func(Repository) error) error {
 	if len(gs.unvisited) == 0 {
 		return errors.New("no unvisited repositories left to sample")
@@ -91,6 +93,7 @@ func (gs *RepositorySampler) Close() error {
 	return gs.visitedFile.Close()
 }
 
+// readRepositoryList retrieves a set of repositories which have already been read from.
 func readRepositoryList(filename string) (map[Repository]struct{}, error) {
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	if err != nil {
@@ -119,11 +122,13 @@ func readRepositoryList(filename string) (map[Repository]struct{}, error) {
 	return result, nil
 }
 
+// MutexWriter wraps an io.WriteCloser with a sync.Mutex.
 type MutexWriter struct { // TODO: this might be a bit much; we already have a Mutex in RepositorySampler
 	m sync.Mutex
 	w io.WriteCloser
 }
 
+// NewMutexWriter wraps an io.WriteCloser with a sync.Mutex.
 func NewMutexWriter(w io.WriteCloser) MutexWriter {
 	return MutexWriter{w: w}
 }
@@ -134,6 +139,7 @@ func (mw *MutexWriter) Write(b []byte) (int, error) {
 	return mw.w.Write(b)
 }
 
+// Close closes the underlying WriteCloser.
 func (mw *MutexWriter) Close() error {
 	mw.m.Lock()
 	defer mw.m.Unlock()
