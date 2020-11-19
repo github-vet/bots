@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/google/go-github/github"
 	"golang.org/x/oauth2"
@@ -14,6 +15,14 @@ const findingsOwner = "github-vet"
 const findingsRepo = "rangeloop-findings"
 
 func main() {
+	logFilename := time.Now().Format("01-02-2006") + ".log"
+	logFile, err := os.OpenFile(logFilename, os.O_APPEND|os.O_CREATE, 0666)
+	defer logFile.Close()
+	if err != nil {
+		log.Fatalf("cannot open log file for writing: %v", err)
+	}
+	log.SetOutput(logFile)
+
 	sampler, err := NewRepositorySampler("repos.csv", "visited.csv")
 	defer sampler.Close()
 	if err != nil {
@@ -31,28 +40,15 @@ func main() {
 	}
 	for {
 		err := sampler.Sample(func(r Repository) error {
-			VetRepositoryBulk(&vetBot, issueReporter, r)
-			return nil
+			return VetRepositoryBulk(&vetBot, issueReporter, r)
 		})
 		if err != nil {
 			break
 		}
 	}
+	//VetRepositoryBulk(&vetBot, issueReporter, Repository{"kalexmills", "bad-go"})
 
 	vetBot.wg.Wait()
-	/*ghToken, ok := os.LookupEnv("GITHUB_TOKEN")
-
-	if !ok {
-		log.Fatalln("could not find GITHUB_TOKEN environment variable")
-	}
-	vetBot := NewVetBot(ghToken)
-	issueReporter, err := NewIssueReporter(&vetBot, "issues.csv")
-	if err != nil {
-		panic(err)
-	}
-
-	VetRepositoryBulk(&vetBot, issueReporter, Repository{"kalexmills", "bad-go"})
-	vetBot.wg.Wait()*/
 }
 
 // VetBot wraps the GitHub client and context used for all GitHub API requests.

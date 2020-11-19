@@ -16,6 +16,7 @@ import (
 	"github.com/google/go-github/github"
 )
 
+// Md5Checksum represents an MD5 checksum as per the standard library.
 type Md5Checksum [md5.Size]byte
 
 // IssueReporter reports issues and maintains a local csv file to document any issues opened.
@@ -47,6 +48,7 @@ func NewIssueReporter(bot *VetBot, issueFile string) (*IssueReporter, error) {
 	}, nil
 }
 
+// Close closes the underlying issue file.
 func (ir *IssueReporter) Close() error {
 	return ir.issueFile.Close()
 }
@@ -85,7 +87,7 @@ func readMd5s(filename string) (map[Md5Checksum]struct{}, error) {
 func (ir *IssueReporter) ReportVetResult(result VetResult) {
 	md5Sum := md5.Sum(result.FileContents)
 	if _, ok := ir.md5s[md5Sum]; ok {
-		fmt.Println("found duplicated code")
+		log.Printf("found duplicated code in %s", result.FilePath)
 		return
 	}
 	ir.md5s[md5Sum] = struct{}{}
@@ -167,6 +169,7 @@ func QuoteFinding(result VetResult) string {
 	return sb.String()
 }
 
+// Labels returns the list of labels to be applied to a VetResult.
 func Labels(result VetResult) []string {
 	slocCount := result.End.Line - result.Start.Line
 	if slocCount < 10 {
