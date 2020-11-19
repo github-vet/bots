@@ -49,13 +49,13 @@ func (ir *IssueReporter) ReportVetResult(result VetResult) {
 			log.Printf("error opening new issue: %v", err)
 			return
 		}
-		ir.writeIssue(result, iss)
+		ir.writeIssueToFile(result, iss)
 		log.Printf("opened new issue at %s", iss.GetHTMLURL())
 		ir.bot.wg.Done()
 	}()
 }
 
-func (ir *IssueReporter) writeIssue(result VetResult, iss *github.Issue) error {
+func (ir *IssueReporter) writeIssueToFile(result VetResult, iss *github.Issue) error {
 	issueNum := fmt.Sprintf("%d", iss.GetNumber())
 	err := ir.csvWriter.Write([]string{findingsOwner, findingsRepo, issueNum})
 	ir.csvWriter.Flush()
@@ -72,11 +72,13 @@ func CreateIssueRequest(result VetResult) github.IssueRequest {
 	slocCount := result.End.Line - result.Start.Line
 	title := fmt.Sprintf("%s/%s: %s; %d LoC", result.Owner, result.Repo, result.FilePath, slocCount)
 	body := Description(result)
+	labels := Labels(result)
 
 	// TODO: labels based on lines of code
 	return github.IssueRequest{
-		Title: &title,
-		Body:  &body,
+		Title:  &title,
+		Body:   &body,
+		Labels: &labels,
 	}
 }
 
@@ -112,6 +114,21 @@ func QuoteFinding(result VetResult) string {
 		}
 	}
 	return sb.String()
+}
+
+func Labels(result VetResult) []string {
+	slocCount := result.End.Line - result.Start.Line
+	if slocCount < 10 {
+		return []string{"tiny"}
+	} else if slocCount < 50 {
+		return []string{"small"}
+	} else if slocCount < 100 {
+		return []string{"medium"}
+	} else if slocCount < 250 {
+		return []string{"large"}
+	} else {
+		return []string{"huge"}
+	}
 }
 
 // IssueResult enriches a VetResult with some additional information.
