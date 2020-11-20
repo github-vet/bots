@@ -47,7 +47,6 @@ func main() {
 			break
 		}
 	}
-	//VetRepositoryBulk(&vetBot, issueReporter, Repository{"kalexmills", "bad-go"})
 
 	vetBot.wg.Wait()
 }

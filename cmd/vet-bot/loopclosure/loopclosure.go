@@ -14,7 +14,8 @@ import (
 )
 
 const Doc = `This is an augmented version of the loopanalyzer found in the
-standard library. It handles nested loops (albeit in an expensive sort of way).`
+standard library. It handles nested loops and avoids relying on type-checking
+info.`
 
 var Analyzer = &analysis.Analyzer{
 	Name:     "loopclosure-augmented",
@@ -28,24 +29,24 @@ func run(pass *analysis.Pass) (interface{}, error) {
 
 	nodeFilter := []ast.Node{
 		(*ast.RangeStmt)(nil),
-		(*ast.ForStmt)(nil),
 	}
 	inspect.Preorder(nodeFilter, func(n ast.Node) {
-		inspectLoopBody(n, nil, pass)
+		inspectBody(n, nil, pass)
 	})
 	return nil, nil
 }
 
 type LoopVar struct {
 	ident *ast.Ident
-	body  *ast.BlockStmt
+	body  *ast.RangeStmt
 }
 
-func inspectLoopBody(n ast.Node, outerVars []LoopVar, pass *analysis.Pass) {
-	// Find the variables updated by the loop statement.
+func inspectBody(n ast.Node, outerVars []LoopVar, pass *analysis.Pass) {
 	loopVars := make([]LoopVar, len(outerVars))
 	copy(loopVars, outerVars)
-	addVar := func(expr ast.Expr, body *ast.BlockStmt) {
+
+	// Find the variables updated by the loop statement.
+	addVar := func(expr ast.Expr, body *ast.RangeStmt) {
 		if id, ok := expr.(*ast.Ident); ok {
 			loopVars = append(loopVars, LoopVar{
 				ident: id,
@@ -53,27 +54,21 @@ func inspectLoopBody(n ast.Node, outerVars []LoopVar, pass *analysis.Pass) {
 			})
 		}
 	}
-	forStmt := n
 	var body *ast.BlockStmt
 	switch n := n.(type) {
 	case *ast.RangeStmt:
 		body = n.Body
-		addVar(n.Key, body)
-		addVar(n.Value, body)
+		addVar(n.Key, n)
+		addVar(n.Value, n)
+	// Keep checking the contents of nested blocks, but only capture range loop variables as targets
 	case *ast.ForStmt:
 		body = n.Body
-		switch post := n.Post.(type) {
-		case *ast.AssignStmt:
-			// e.g. for p = head; p != nil; p = p.next
-			for _, lhs := range post.Lhs {
-				addVar(lhs, body)
-			}
-		case *ast.IncDecStmt:
-			// e.g. for i := 0; i < n; i++
-			addVar(post.X, body)
-		}
+	case *ast.IfStmt:
+		body = n.Body
+	case *ast.SwitchStmt:
+		body = n.Body
 	}
-	if loopVars == nil {
+	if len(loopVars) == 0 {
 		return
 	}
 
@@ -84,12 +79,12 @@ func inspectLoopBody(n ast.Node, outerVars []LoopVar, pass *analysis.Pass) {
 				return true
 			}
 			if id.Obj != nil && id.Obj.Kind != ast.Var {
-				// Not referring to a variable.
+				// Identifier is not referring to a variable
 				return true
 			}
 			for _, v := range loopVars {
 				if v.ident.Obj == id.Obj {
-					pass.ReportRangef(forStmt, "loop variable %s captured by func literal",
+					pass.ReportRangef(v.body, "loop variable %s captured by func literal",
 						id.Name)
 				}
 			}
@@ -97,7 +92,7 @@ func inspectLoopBody(n ast.Node, outerVars []LoopVar, pass *analysis.Pass) {
 		})
 	}
 
-	if len(body.List) == 0 {
+	if body == nil || len(body.List) == 0 {
 		return
 	}
 	for _, stmt := range body.List {
@@ -111,11 +106,15 @@ func inspectLoopBody(n ast.Node, outerVars []LoopVar, pass *analysis.Pass) {
 				inspectFuncLit(lit)
 			}
 
-		// check nested loops as well
+		// recurse into nested loops as well and perform the same check.
 		case *ast.RangeStmt:
-			inspectLoopBody(s, loopVars, pass)
+			inspectBody(s, loopVars, pass)
 		case *ast.ForStmt:
-			inspectLoopBody(s, loopVars, pass)
+			inspectBody(s, loopVars, pass)
+		case *ast.IfStmt:
+			inspectBody(s, loopVars, pass)
+		case *ast.SwitchStmt:
+			inspectBody(s, loopVars, pass)
 		}
 	}
 }
