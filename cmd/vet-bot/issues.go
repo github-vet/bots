@@ -212,6 +212,9 @@ which capture loop variables.
 ~~~
 </details>
 
+Leave a reaction on this issue to contribute to the project by classifying this instance as a **Bug** :-1:, **Mitigated** :+1:, or **Desirable Behavior** :rocket:
+See the descriptions of the classifications [here](https://github.com/github-vet/rangeclosure-findings#how-can-i-help) for more information.
+
 commit ID: {{.RootCommitID}}
 `
 
