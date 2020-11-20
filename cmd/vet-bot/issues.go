@@ -122,7 +122,7 @@ func (ir *IssueReporter) writeIssueToFile(result VetResult, iss *github.Issue) e
 // of any findings.
 func CreateIssueRequest(result VetResult) github.IssueRequest {
 
-	slocCount := result.End.Line - result.Start.Line
+	slocCount := result.End.Line - result.Start.Line + 1
 	title := fmt.Sprintf("%s/%s: %s; %d LoC", result.Owner, result.Repo, result.FilePath, slocCount)
 	body := Description(result)
 	labels := Labels(result)
