@@ -10,13 +10,19 @@ import (
 	"github.com/google/go-github/github"
 )
 
-const IssueNumFields int = 2
+const IssueNumFields int = 3
 
+// Issue is a local record of an issue being tracked by this bot.
 type Issue struct {
-	Number           int
+	// Number records the issue number.
+	Number int
+	// ExpertAssessment indicates the assessment of experts.
 	ExpertAssessment string
+	// DisagreeFlag is true when this issue has been commented on for disagreement.
+	DisagreeFlag bool
 }
 
+// HasExpertAssessment is true if the issue has already been expertly assessed
 func (i Issue) HasExpertAssessment() bool {
 	return i.ExpertAssessment != ""
 }
@@ -71,7 +77,8 @@ func ReadIssuesFile(path string) (map[int]*Issue, error) {
 
 func IssueFromGithub(iss *github.Issue) Issue {
 	return Issue{
-		Number: iss.GetNumber(),
+		Number:       iss.GetNumber(),
+		DisagreeFlag: false,
 	}
 }
 
@@ -80,9 +87,14 @@ func IssueFromCsvLine(line []string) (Issue, error) {
 	if err != nil {
 		return Issue{}, err
 	}
+	disagree, err := strconv.ParseBool(line[2])
+	if err != nil {
+		return Issue{}, err
+	}
 	return Issue{
 		Number:           int(id),
 		ExpertAssessment: line[1],
+		DisagreeFlag:     disagree,
 	}, nil
 }
 
@@ -90,5 +102,6 @@ func CsvLineFromIssue(iss Issue) []string {
 	return []string{
 		strconv.Itoa(iss.Number),
 		iss.ExpertAssessment,
+		strconv.FormatBool(iss.DisagreeFlag),
 	}
 }

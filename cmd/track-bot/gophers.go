@@ -19,6 +19,7 @@ type Gopher struct {
 // AnonymousScore is the score of a gopher who has never had one of their votes assessed.
 const AnonymousScore float32 = 0.25
 
+// Score computes a value in (0, 1) reflecting how frequently this Gopher has agreed with expert opinion.
 func (u Gopher) Score() float32 {
 	return 1 - float32(1+u.Disagreements)/float32(1+u.Assessments)
 }

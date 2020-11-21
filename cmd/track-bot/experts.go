@@ -32,7 +32,9 @@ func CsvLineFromExpert(exp Expert) []string {
 		strconv.Itoa(exp.AssessmentCount),
 	}
 }
+
 func ReadExpertsFile(path string) (map[string]*Expert, error) {
+	// TODO: mayhaps too much duplication
 	result := make(map[string]*Expert)
 	if _, err := os.Stat(path); err != nil {
 		return result, nil
@@ -53,7 +55,7 @@ func ReadExpertsFile(path string) (map[string]*Expert, error) {
 			return nil, err
 		}
 		lineNum++
-		if len(record) != IssueNumFields {
+		if len(record) != ExpertNumFields {
 			log.Printf("malformed line in issues list %s line %d, expected %d fields, found %d", path, lineNum, IssueNumFields, len(record))
 			continue
 		}
