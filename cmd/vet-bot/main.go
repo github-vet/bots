@@ -12,7 +12,7 @@ import (
 )
 
 const findingsOwner = "github-vet"
-const findingsRepo = "rangeloop-findings"
+const findingsRepo = "rangeclosure-findings"
 
 func main() {
 	logFilename := time.Now().Format("01-02-2006") + ".log"

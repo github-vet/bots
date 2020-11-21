@@ -59,10 +59,10 @@ func readMd5s(filename string) (map[Md5Checksum]struct{}, error) {
 		return result, nil
 	}
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
+	defer file.Close()
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
 	reader := csv.NewReader(file)
 	for {
 		record, err := reader.Read()
@@ -211,6 +211,9 @@ which capture loop variables.
 {{.Quote}}
 ~~~
 </details>
+
+Leave a reaction on this issue to contribute to the project by classifying this instance as a **Bug** :-1:, **Mitigated** :+1:, or **Desirable Behavior** :rocket:
+See the descriptions of the classifications [here](https://github.com/github-vet/rangeclosure-findings#how-can-i-help) for more information.
 
 commit ID: {{.RootCommitID}}
 `
