@@ -7,7 +7,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/google/go-github/github"
+	"github.com/google/go-github/v32/github"
 )
 
 const IssueNumFields int = 3

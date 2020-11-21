@@ -7,7 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/go-github/github"
+	"github.com/google/go-github/v32/github"
+	"github.com/kalexmills/github-vet/internal/ratelimit"
 	"golang.org/x/oauth2"
 )
 
@@ -53,8 +54,7 @@ func main() {
 
 // VetBot wraps the GitHub client and context used for all GitHub API requests.
 type VetBot struct {
-	ctx        context.Context
-	client     *github.Client
+	client     *ratelimit.Client
 	reportFunc func(bot *VetBot, result VetResult)
 	wg         sync.WaitGroup
 }
@@ -67,8 +67,11 @@ func NewVetBot(token string) VetBot {
 	)
 	tc := oauth2.NewClient(ctx, ts)
 	client := github.NewClient(tc)
+	limited, err := ratelimit.NewClient(ctx, client)
+	if err != nil {
+		panic(err)
+	}
 	return VetBot{
-		ctx:    ctx,
-		client: client,
+		client: &limited,
 	}
 }

@@ -5,12 +5,14 @@ import (
 	"errors"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
 	"text/template"
 	"time"
 
-	"github.com/google/go-github/github"
+	"github.com/google/go-github/v32/github"
+	"github.com/kalexmills/github-vet/internal/ratelimit"
 	"golang.org/x/oauth2"
 )
 
@@ -23,6 +25,8 @@ var ValidReactions []string = []string{"+1", "-1", "rocket"}
 // TODO: maybe don't hardcode these? We don't have any reason to do otherwise right now, though.
 const findingsOwner = "github-vet"
 const findingsRepo = "rangeclosure-findings"
+
+var PollFrequency time.Duration = 1 * time.Minute
 
 func main() {
 	logFilename := time.Now().Format("01-02-2006") + ".log"
@@ -42,7 +46,21 @@ func main() {
 		log.Fatalf("error creating trackbot: %v", err)
 	}
 
-	ProcessAllIssues(&bot)
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	ticker := time.NewTicker(PollFrequency)
+	for {
+		select {
+		case <-ticker.C:
+			bot.client.ResetCount()
+			ProcessAllIssues(&bot)
+			log.Printf("pass complete; performed %d API calls", bot.client.GetCount())
+		case <-c:
+			ticker.Stop()
+			bot.wg.Wait()
+			return
+		}
+	}
 }
 
 // ProcessAllIssues processes all pages of issues found in the provided repository and looks for updates.
@@ -59,14 +77,14 @@ func ProcessAllIssues(bot *TrackBot) {
 	}
 	var opts github.IssueListByRepoOptions
 	opts.PerPage = 100
-	issuePage, resp, err := bot.client.Issues.ListByRepo(bot.ctx, findingsOwner, findingsRepo, &opts)
+	issuePage, resp, err := bot.client.ListIssuesByRepo(findingsOwner, findingsRepo, &opts)
 	for {
 		if err != nil {
 			log.Printf("could not grab issues: %v", err) // TODO: handle rate-limiting
 		}
 		ProcessIssuePage(bot, issuePage)
 		opts.Page = resp.NextPage
-		issuePage, resp, err = bot.client.Issues.ListByRepo(bot.ctx, findingsOwner, findingsRepo, &opts)
+		issuePage, resp, err = bot.client.ListIssuesByRepo(findingsOwner, findingsRepo, &opts)
 		if resp.FirstPage == 0 { // no idea why this finds everything, but it does so consistently
 			break
 		}
@@ -104,15 +122,15 @@ func ProcessIssuePage(bot *TrackBot, issuePage []*github.Issue) {
 func GetAllReactions(bot *TrackBot, issueNum int) []*github.Reaction {
 	var listOpts github.ListOptions
 	listOpts.PerPage = 100
-	reactions, resp, err := bot.client.Reactions.ListIssueReactions(bot.ctx, findingsOwner, findingsRepo, issueNum, &listOpts)
+	reactions, resp, err := bot.client.ListIssueReactions(findingsOwner, findingsRepo, issueNum, &listOpts)
 	var allReactions []*github.Reaction
 	for {
 		if err != nil {
-			log.Printf("could not read issues") // TODO: handle rate-limiting
+			log.Printf("could not read issues: %v", err)
 		}
 		allReactions = append(allReactions, reactions...)
 		listOpts.Page = resp.NextPage
-		reactions, resp, err = bot.client.Reactions.ListIssueReactions(bot.ctx, findingsOwner, findingsRepo, issueNum, &listOpts)
+		reactions, resp, err = bot.client.ListIssueReactions(findingsOwner, findingsRepo, issueNum, &listOpts)
 		if resp.FirstPage == 0 {
 			break
 		}
@@ -234,7 +252,7 @@ func MaybeCloseIssue(bot *TrackBot, record *Issue, expertCount int) {
 	req := github.IssueRequest{
 		State: &state,
 	}
-	_, _, err := bot.client.Issues.Edit(bot.ctx, findingsOwner, findingsRepo, record.Number, &req)
+	_, _, err := bot.client.EditIssue(findingsOwner, findingsRepo, record.Number, &req)
 	if err != nil {
 		log.Printf("could not close issue %d after %d experts agreed", record.Number, expertCount)
 	}
@@ -251,7 +269,7 @@ func AddLabel(bot *TrackBot, issue *github.Issue, label string) {
 	if hasLabel {
 		return // avoid API call
 	}
-	_, _, err := bot.client.Issues.AddLabelsToIssue(bot.ctx, findingsOwner, findingsRepo, issue.GetNumber(), []string{label})
+	_, _, err := bot.client.AddLabelsToIssue(findingsOwner, findingsRepo, issue.GetNumber(), []string{label})
 	if err != nil {
 		log.Printf("could not label issue %d with label %s: %v", issue.GetNumber(), label, err)
 	}
@@ -268,7 +286,7 @@ func RemoveLabel(bot *TrackBot, issue *github.Issue, label string) {
 	if !hasLabel {
 		return // avoid API call
 	}
-	_, err := bot.client.Issues.RemoveLabelForIssue(bot.ctx, findingsOwner, findingsRepo, issue.GetNumber(), label)
+	_, err := bot.client.RemoveLabelForIssue(findingsOwner, findingsRepo, issue.GetNumber(), label)
 	if err != nil {
 		log.Printf("could not remove label %s from issue %d: %v", label, issue.GetNumber(), err)
 	}
@@ -280,7 +298,7 @@ func SetExpertLabel(bot *TrackBot, issue *github.Issue, assessment string) {
 	if !changed {
 		return // avoid extra API calls
 	}
-	_, _, err := bot.client.Issues.ReplaceLabelsForIssue(bot.ctx, findingsOwner, findingsRepo, issue.GetNumber(), newLabels)
+	_, _, err := bot.client.ReplaceLabelsForIssue(findingsOwner, findingsRepo, issue.GetNumber(), newLabels)
 	if err != nil {
 		log.Printf("could not label issue %d with expert assessment %s", issue.GetNumber(), assessment)
 	}
@@ -292,14 +310,14 @@ func SetCommunityLabel(bot *TrackBot, issue *github.Issue, assessment string) {
 	if !changed {
 		return // avoid extra API calls
 	}
-	_, _, err := bot.client.Issues.ReplaceLabelsForIssue(bot.ctx, findingsOwner, findingsRepo, issue.GetNumber(), newLabels)
+	_, _, err := bot.client.ReplaceLabelsForIssue(findingsOwner, findingsRepo, issue.GetNumber(), newLabels)
 	if err != nil {
 		log.Printf("could not label issue %d with community assessment %s", issue.GetNumber(), assessment)
 	}
 }
 
 // modifyLabels returns the modified set of labels, and a flag indicating whether any labels were changed.
-func modifyLabels(labels []github.Label, prefix, assessment string) ([]string, bool) {
+func modifyLabels(labels []*github.Label, prefix, assessment string) ([]string, bool) {
 	var result []string
 	newLabel := prefix + ": :" + assessment + ":"
 	flag := true
@@ -333,6 +351,16 @@ Expert votes:
 {{end}}
 `
 
+var parsed *template.Template
+
+func init() {
+	var err error
+	parsed, err = template.New("disagreement").Parse(DisagreementTemplate)
+	if err != nil {
+		panic(err)
+	}
+}
+
 // DisagreementData describes data for the Disagreement template.
 type DisagreementData struct {
 	Usernames  []string
@@ -347,9 +375,16 @@ func HandleExpertDisagreement(bot *TrackBot, record *Issue, issue *github.Issue,
 	record.DisagreeFlag = true
 	log.Printf("experts disagree! %v\n", expertsToThrottle)
 
-	go SetExpertLabel(bot, issue, "confused")
-	go ThrottleExperts(bot, record, expertsToThrottle, expertAssessments)
-	// TODO: post a comment on the issue highlighting any disagreement and @ing the experts involved to make them aware that a transparent discussion ought to be had.
+	bot.wg.Add(1)
+	go func() {
+		SetExpertLabel(bot, issue, "confused")
+		bot.wg.Done()
+	}()
+	bot.wg.Add(1)
+	go func() {
+		ThrottleExperts(bot, record, expertsToThrottle, expertAssessments)
+		bot.wg.Done()
+	}()
 }
 
 // ThrottleExperts posts a comment on the issue mentioning the experts to draw attention to their disagreement and start a
@@ -367,15 +402,14 @@ func ThrottleExperts(bot *TrackBot, record *Issue, expertsToThrottle []string, e
 	var comment github.IssueComment
 	body := b.String()
 	comment.Body = &body
-	_, _, err = bot.client.Issues.CreateComment(bot.ctx, findingsOwner, findingsRepo, record.Number, &comment)
+	_, _, err = bot.client.CreateIssueComment(findingsOwner, findingsRepo, record.Number, &comment)
 	if err != nil {
 		log.Printf("could not post issue disagreement comment: %v", err)
 	}
 }
 
 type TrackBot struct {
-	ctx            context.Context
-	client         *github.Client
+	client         *ratelimit.Client
 	wg             sync.WaitGroup
 	issueFilePath  string
 	gopherFilePath string
@@ -399,21 +433,15 @@ func NewTrackBot(token string, issueFilePath, expertsFilePath string, gopherFile
 	)
 	tc := oauth2.NewClient(ctx, ts)
 	client := github.NewClient(tc)
+	limited, err := ratelimit.NewClient(ctx, client)
+	if err != nil {
+		log.Fatalf("cannot create ratelimited client: %v", err)
+		return TrackBot{}, err
+	}
 	return TrackBot{
-		ctx:            ctx,
-		client:         client,
+		client:         &limited,
 		issueFilePath:  issueFilePath,
 		gopherFilePath: gopherFilePath,
 		experts:        experts,
 	}, nil
-}
-
-var parsed *template.Template
-
-func init() {
-	var err error
-	parsed, err = template.New("disagreement").Parse(DisagreementTemplate)
-	if err != nil {
-		panic(err)
-	}
 }
