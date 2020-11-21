@@ -13,7 +13,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/google/go-github/github"
+	"github.com/google/go-github/v32/github"
 )
 
 // Md5Checksum represents an MD5 checksum as per the standard library.
@@ -95,7 +95,7 @@ func (ir *IssueReporter) ReportVetResult(result VetResult) {
 	ir.bot.wg.Add(1)
 	go func() {
 		issueRequest := CreateIssueRequest(result)
-		iss, _, err := ir.bot.client.Issues.Create(ir.bot.ctx, findingsOwner, findingsRepo, &issueRequest)
+		iss, _, err := ir.bot.client.CreateIssue(findingsOwner, findingsRepo, &issueRequest)
 		if err != nil {
 			log.Printf("error opening new issue: %v", err)
 			return

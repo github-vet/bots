@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/google/go-github/github"
+	"github.com/google/go-github/v32/github"
 	"github.com/kalexmills/github-vet/cmd/vet-bot/loopclosure"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -47,7 +47,7 @@ func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) error {
 		log.Printf("failed to retrieve root commit ID for repo %s/%s", repo.Owner, repo.Repo)
 		return err
 	}
-	url, _, err := bot.client.Repositories.GetArchiveLink(bot.ctx, repo.Owner, repo.Repo, github.Tarball, nil)
+	url, _, err := bot.client.GetArchiveLink(repo.Owner, repo.Repo, github.Tarball, nil, false)
 	if err != nil {
 		log.Printf("failed to get tar link for %s/%s: %v", repo.Owner, repo.Repo, err)
 		return err
@@ -134,7 +134,7 @@ func VetFile(contents []byte, path string, fset *token.FileSet, onFind Reporter)
 
 // GetRootCommitID retrieves the root commit of the default branch of a repository.
 func GetRootCommitID(bot *VetBot, repo Repository) (string, error) {
-	r, _, err := bot.client.Repositories.Get(bot.ctx, repo.Owner, repo.Repo)
+	r, _, err := bot.client.GetRepository(repo.Owner, repo.Repo)
 	if err != nil {
 		log.Printf("failed to get repo: %v", err)
 		return "", err
@@ -142,7 +142,7 @@ func GetRootCommitID(bot *VetBot, repo Repository) (string, error) {
 	defaultBranch := r.GetDefaultBranch()
 
 	// retrieve the root commit of the default branch for the repository
-	branch, _, err := bot.client.Repositories.GetBranch(bot.ctx, repo.Owner, repo.Repo, defaultBranch)
+	branch, _, err := bot.client.GetRepositoryBranch(repo.Owner, repo.Repo, defaultBranch)
 	if err != nil {
 		log.Printf("failed to get default branch: %v", err)
 		return "", err
