@@ -59,10 +59,10 @@ func readMd5s(filename string) (map[Md5Checksum]struct{}, error) {
 		return result, nil
 	}
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
+	defer file.Close()
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
 	reader := csv.NewReader(file)
 	for {
 		record, err := reader.Read()
