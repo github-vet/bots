@@ -16,6 +16,9 @@ import (
 	"golang.org/x/oauth2"
 )
 
+// PollFrequency is the frequency this bot is run.
+var PollFrequency time.Duration = 15 * time.Minute
+
 // MinExpertsNeededToClose controls the number of experts who must react before the issue is marked as closed.
 const MinExpertsNeededToClose = 2
 
@@ -26,8 +29,20 @@ var ValidReactions []string = []string{"+1", "-1", "rocket"}
 const findingsOwner = "github-vet"
 const findingsRepo = "rangeclosure-findings"
 
-var PollFrequency time.Duration = 1 * time.Minute
-
+// main runs trackbot. trackbot runs continuously, reading the entire issue tracker of a hardcoded GitHub repository
+// every 15 minutes and updating its labels on the basis of community interactions.
+//
+// trackbot expects an environment variable named GITHUB_TOKEN which contains a valid personal access token used
+// to authenticate with the GitHub API.
+//
+// trackbot expects read-write access to the working directory. It expects a single, non-empty file in the working
+// directory named 'experts.csv'. This file should contain a list of github usernames followed by ",0", and a linebreak
+// (unused at this time).
+//
+// trackbot creates two other files, 'issue_tracking.csv' and 'gophers.csv'. These files will be created if they do
+// not exist. trackbot reads and writes to this file every time it polls.
+//
+// trackbot also creates a log file named 'MM-DD-YYYY.log', using the system date.
 func main() {
 	logFilename := time.Now().Format("01-02-2006") + ".log"
 	logFile, err := os.OpenFile(logFilename, os.O_APPEND|os.O_CREATE, 0666)
@@ -104,8 +119,13 @@ func ProcessIssuePage(bot *TrackBot, issuePage []*github.Issue) {
 	for _, issue := range issuePage {
 		num := issue.GetNumber()
 		if issue.GetReactions().GetTotalCount() == 0 {
-			// TODO: add 'new' label
+			if !HasLabel(issue, "fresh") {
+				AddLabel(bot, issue, "fresh")
+			}
 			continue
+		}
+		if HasLabel(issue, "fresh") {
+			RemoveLabel(bot, issue, "fresh")
 		}
 		allReactions := GetAllReactions(bot, num)
 		if record, ok := bot.issues[num]; ok {
@@ -258,15 +278,19 @@ func MaybeCloseIssue(bot *TrackBot, record *Issue, expertCount int) {
 	}
 }
 
-// AddLabel adds the provided label to the issue, if it is present.
-func AddLabel(bot *TrackBot, issue *github.Issue, label string) {
-	hasLabel := false
+// HasLabel returns true if the issue has a matching label.
+func HasLabel(issue *github.Issue, label string) bool {
 	for _, l := range issue.Labels {
 		if l.GetName() == label {
-			hasLabel = true
+			return true
 		}
 	}
-	if hasLabel {
+	return false
+}
+
+// AddLabel adds the provided label to the issue, if it is present.
+func AddLabel(bot *TrackBot, issue *github.Issue, label string) {
+	if HasLabel(issue, label) {
 		return // avoid API call
 	}
 	_, _, err := bot.client.AddLabelsToIssue(findingsOwner, findingsRepo, issue.GetNumber(), []string{label})
@@ -277,13 +301,7 @@ func AddLabel(bot *TrackBot, issue *github.Issue, label string) {
 
 // RemoveLabel removes the provided label from the issue, if it is present.
 func RemoveLabel(bot *TrackBot, issue *github.Issue, label string) {
-	hasLabel := false
-	for _, l := range issue.Labels {
-		if l.GetName() == label {
-			hasLabel = true
-		}
-	}
-	if !hasLabel {
+	if !HasLabel(issue, label) {
 		return // avoid API call
 	}
 	_, err := bot.client.RemoveLabelForIssue(findingsOwner, findingsRepo, issue.GetNumber(), label)
