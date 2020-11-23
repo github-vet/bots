@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/google/go-github/v32/github"
@@ -14,8 +15,10 @@ import (
 // Any requests that would exceed the rate limit block until the rate limit resets. It only implements the
 // github APIs needed by this project.
 type Client struct {
-	ctx     context.Context
-	client  *github.Client
+	ctx    context.Context
+	client *github.Client
+
+	mut     sync.Mutex
 	limited bool
 	resetAt time.Time
 	count   int // used to count API calls
@@ -154,20 +157,32 @@ func (c *Client) GetRepositoryBranch(owner, repo, branch string) (*github.Branch
 	return b, resp, err
 }
 
+var skew time.Duration = time.Second
+
 func (c *Client) blockOnLimit() {
 	c.count++
-	if c.limited {
-		if c.resetAt.After(time.Now()) {
+	if c.isLimited() {
+		if c.resetAt.After(time.Now().Add(skew)) {
 			log.Printf("rate limit hit; blocking until %T", c.resetAt)
-			<-time.After(c.resetAt.Sub(time.Now())) // block until the reset occurs.
+			<-time.After(c.resetAt.Sub(time.Now()) + skew)
 		}
+		c.mut.Lock()
+		defer c.mut.Unlock()
 		c.limited = false
 	}
 }
 
 func (c *Client) updateRateLimits(rate github.Rate) {
 	if rate.Remaining == 0 {
+		c.mut.Lock()
+		defer c.mut.Unlock()
 		c.limited = true
 		c.resetAt = rate.Reset.Time
 	}
+}
+
+func (c *Client) isLimited() bool {
+	c.mut.Lock()
+	defer c.mut.Unlock()
+	return c.limited
 }

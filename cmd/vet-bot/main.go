@@ -15,6 +15,23 @@ import (
 const findingsOwner = "github-vet"
 const findingsRepo = "rangeclosure-findings"
 
+// main runs the vetbot.
+//
+// vetbot runs continuously, sampling from a list of GitHub repositories, downloading their contents, running
+// static analysis on every .go file they contain, and reporting any findings to the issue tracker of a hardcoded
+// GitHub repository.
+//
+// vetbot expects an environment variable named GITHUB_TOKEN which contains a valid personal access token used
+// to authenticate with the GitHub API.
+//
+// vetbot expects read-write access to the working directory. vetbot expects a non-empty file named 'repos.csv',
+// which contains a list of GitHub repositories to sample from. This file should contain 'owner,repo' pairs, one per
+// line.
+//
+// vetbot creates two other files, 'visited.csv' and 'issues.csv' to track issues opened and the repositories which
+// have been visted.
+//
+// vetbot also creates a log file named 'MM-DD-YYYY.log', using the system date.
 func main() {
 	logFilename := time.Now().Format("01-02-2006") + ".log"
 	logFile, err := os.OpenFile(logFilename, os.O_APPEND|os.O_CREATE, 0666)
@@ -39,6 +56,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("can't start issue reporter: %v", err)
 	}
+
 	for {
 		err := sampler.Sample(func(r Repository) error {
 			return VetRepositoryBulk(&vetBot, issueReporter, r)

@@ -16,6 +16,9 @@ import (
 	"golang.org/x/oauth2"
 )
 
+// PollFrequency is the frequency this bot is run.
+var PollFrequency time.Duration = 15 * time.Minute
+
 // MinExpertsNeededToClose controls the number of experts who must react before the issue is marked as closed.
 const MinExpertsNeededToClose = 2
 
@@ -26,8 +29,23 @@ var ValidReactions []string = []string{"+1", "-1", "rocket"}
 const findingsOwner = "github-vet"
 const findingsRepo = "rangeclosure-findings"
 
-var PollFrequency time.Duration = 1 * time.Minute
+// CloseTestIssues is a flag used to close any issues found which are in a test file.
+var CloseTestIssues bool = true
 
+// main runs trackbot. trackbot runs continuously, reading the entire issue tracker of a hardcoded GitHub repository
+// every 15 minutes and updating its labels on the basis of community interactions.
+//
+// trackbot expects an environment variable named GITHUB_TOKEN which contains a valid personal access token used
+// to authenticate with the GitHub API.
+//
+// trackbot expects read-write access to the working directory. It expects a single, non-empty file in the working
+// directory named 'experts.csv'. This file should contain a list of github usernames followed by ",0", and a linebreak
+// (unused at this time).
+//
+// trackbot creates two other files, 'issue_tracking.csv' and 'gophers.csv'. These files will be created if they do
+// not exist. trackbot reads and writes to this file every time it polls.
+//
+// trackbot also creates a log file named 'MM-DD-YYYY.log', using the system date.
 func main() {
 	logFilename := time.Now().Format("01-02-2006") + ".log"
 	logFile, err := os.OpenFile(logFilename, os.O_APPEND|os.O_CREATE, 0666)
@@ -102,10 +120,16 @@ func ProcessAllIssues(bot *TrackBot) {
 // ProcessIssuePage processes one page of issues from GitHub.
 func ProcessIssuePage(bot *TrackBot, issuePage []*github.Issue) {
 	for _, issue := range issuePage {
+		MaybeCloseAndLabelTestIssue(bot, *issue)
 		num := issue.GetNumber()
 		if issue.GetReactions().GetTotalCount() == 0 {
-			// TODO: add 'new' label
+			if !HasLabel(issue, "fresh") {
+				bot.DoAsync(func() { AddLabel(bot, issue, "fresh") })
+			}
 			continue
+		}
+		if HasLabel(issue, "fresh") {
+			bot.DoAsync(func() { RemoveLabel(bot, issue, "fresh") })
 		}
 		allReactions := GetAllReactions(bot, num)
 		if record, ok := bot.issues[num]; ok {
@@ -118,6 +142,31 @@ func ProcessIssuePage(bot *TrackBot, issuePage []*github.Issue) {
 	}
 }
 
+// MaybeCloseAndLabelTestIssue closes and labels the issue if it is based on a test file. Trackbot does this since
+// vetbot has no way to close an issue on its creation (due to apparent limitations in the GitHub API).
+func MaybeCloseAndLabelTestIssue(bot *TrackBot, issue github.Issue) {
+	if !strings.Contains(issue.GetTitle(), "_test.go") {
+		return
+	}
+	var labels []string
+	for _, l := range issue.Labels {
+		labels = append(labels, l.GetName())
+	}
+	if !HasLabel(&issue, "test") {
+		labels = append(labels, "test")
+	}
+	state := "closed"
+	req := github.IssueRequest{}
+	req.Labels = &labels
+	req.State = &state
+	bot.DoAsync(func() {
+		_, _, err := bot.client.EditIssue(findingsOwner, findingsRepo, issue.GetNumber(), &req)
+		if err != nil {
+			log.Printf("could not mark test issue as closed: %v", err)
+		}
+	})
+}
+
 // GetAllReactions retrieves the set of reactions on an issue, paging through the API as needed to make sure they are all retrieved.
 func GetAllReactions(bot *TrackBot, issueNum int) []*github.Reaction {
 	var listOpts github.ListOptions
@@ -126,7 +175,8 @@ func GetAllReactions(bot *TrackBot, issueNum int) []*github.Reaction {
 	var allReactions []*github.Reaction
 	for {
 		if err != nil {
-			log.Printf("could not read issues: %v", err)
+			log.Printf("could not read reaction page: %v", err)
+			break
 		}
 		allReactions = append(allReactions, reactions...)
 		listOpts.Page = resp.NextPage
@@ -169,14 +219,14 @@ func UpdateIssueReactions(bot *TrackBot, record *Issue, issue github.Issue, allR
 	}
 }
 
-// ConfusionThreshold marks the fraction of the score needed before the community is considered 'confused'.
+// ConfusionThreshold marks the fraction of total score applied to an isssue needed before the community is considered 'confused'.
 const ConfusionThreshold = 0.8
 
-// CommunityReliabilityThreshold marks the minimum reliability score needed on an issue before it will have a community label applied.
-const CommunityReliabilityThreshold = 1.0
+// CommunityScoreThreshold marks the minimum reliability score needed on an issue before it will have a community label applied.
+const CommunityScoreThreshold = 1.0
 
-// HighCommunityReliabilityThreshold marks the threshold needed before the 'high reliability' label is applied.
-const HighCommunityReliabilityThreshold = 5.0
+// HighCommunityScoreThreshold marks the threshold needed before the 'reliable' label is applied.
+const HighCommunityScoreThreshold = 5.0
 
 // UpdateCommunityAssessment updates the overall community assessment based on the reliability of all the users involved.
 func UpdateCommunityAssessment(bot *TrackBot, record *Issue, issue *github.Issue, reactions []*github.Reaction) {
@@ -191,21 +241,24 @@ func UpdateCommunityAssessment(bot *TrackBot, record *Issue, issue *github.Issue
 	for _, score := range scores {
 		totalScore += score
 	}
+	// find the outomce with the highest score.
 	maxScore := float32(0)
 	var maxOutcome string
 	for outcome, score := range scores {
-		if score > CommunityReliabilityThreshold && score > maxScore {
+		if score > CommunityScoreThreshold && score > maxScore {
 			maxScore = score
 			maxOutcome = outcome
 		}
 	}
 	if maxOutcome != "" {
 		if maxScore < ConfusionThreshold {
-			go SetCommunityLabel(bot, issue, "confused")
+			bot.DoAsync(func() { SetCommunityLabel(bot, issue, "confused") })
 		} else {
-			go SetCommunityLabel(bot, issue, maxOutcome)
-			if maxScore > HighCommunityReliabilityThreshold {
-
+			bot.DoAsync(func() { SetCommunityLabel(bot, issue, maxOutcome) })
+			if maxScore > HighCommunityScoreThreshold {
+				bot.DoAsync(func() { AddLabel(bot, issue, "reliable") })
+			} else if HasLabel(issue, "reliable") {
+				bot.DoAsync(func() { RemoveLabel(bot, issue, "reliable") })
 			}
 		}
 	}
@@ -239,8 +292,8 @@ func HandleExpertAgreement(bot *TrackBot, record *Issue, issue *github.Issue, re
 		record.DisagreeFlag = false
 	}
 
-	go SetExpertLabel(bot, issue, assessment)
-	go MaybeCloseIssue(bot, record, numExperts)
+	bot.DoAsync(func() { SetExpertLabel(bot, issue, assessment) })
+	bot.DoAsync(func() { MaybeCloseIssue(bot, record, numExperts) })
 }
 
 // MaybeCloseIssue closes the issue if the number of experts who have provided their assessment exceeds the threshold.
@@ -258,15 +311,19 @@ func MaybeCloseIssue(bot *TrackBot, record *Issue, expertCount int) {
 	}
 }
 
-// AddLabel adds the provided label to the issue, if it is present.
-func AddLabel(bot *TrackBot, issue *github.Issue, label string) {
-	hasLabel := false
+// HasLabel returns true if the issue has a matching label.
+func HasLabel(issue *github.Issue, label string) bool {
 	for _, l := range issue.Labels {
 		if l.GetName() == label {
-			hasLabel = true
+			return true
 		}
 	}
-	if hasLabel {
+	return false
+}
+
+// AddLabel adds the provided label to the issue, if it is present.
+func AddLabel(bot *TrackBot, issue *github.Issue, label string) {
+	if HasLabel(issue, label) {
 		return // avoid API call
 	}
 	_, _, err := bot.client.AddLabelsToIssue(findingsOwner, findingsRepo, issue.GetNumber(), []string{label})
@@ -277,13 +334,7 @@ func AddLabel(bot *TrackBot, issue *github.Issue, label string) {
 
 // RemoveLabel removes the provided label from the issue, if it is present.
 func RemoveLabel(bot *TrackBot, issue *github.Issue, label string) {
-	hasLabel := false
-	for _, l := range issue.Labels {
-		if l.GetName() == label {
-			hasLabel = true
-		}
-	}
-	if !hasLabel {
+	if !HasLabel(issue, label) {
 		return // avoid API call
 	}
 	_, err := bot.client.RemoveLabelForIssue(findingsOwner, findingsRepo, issue.GetNumber(), label)
@@ -375,16 +426,12 @@ func HandleExpertDisagreement(bot *TrackBot, record *Issue, issue *github.Issue,
 	record.DisagreeFlag = true
 	log.Printf("experts disagree! %v\n", expertsToThrottle)
 
-	bot.wg.Add(1)
-	go func() {
+	bot.DoAsync(func() {
 		SetExpertLabel(bot, issue, "confused")
-		bot.wg.Done()
-	}()
-	bot.wg.Add(1)
-	go func() {
+	})
+	bot.DoAsync(func() {
 		ThrottleExperts(bot, record, expertsToThrottle, expertAssessments)
-		bot.wg.Done()
-	}()
+	})
 }
 
 // ThrottleExperts posts a comment on the issue mentioning the experts to draw attention to their disagreement and start a
@@ -416,6 +463,14 @@ type TrackBot struct {
 	gophers        map[string]*Gopher
 	issues         map[int]*Issue
 	experts        map[string]*Expert
+}
+
+func (b *TrackBot) DoAsync(f func()) {
+	b.wg.Add(1)
+	go func(f func()) {
+		f()
+		b.wg.Done()
+	}(f)
 }
 
 func NewTrackBot(token string, issueFilePath, expertsFilePath string, gopherFilePath string) (TrackBot, error) {
