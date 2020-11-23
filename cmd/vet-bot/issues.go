@@ -126,12 +126,14 @@ func CreateIssueRequest(result VetResult) github.IssueRequest {
 	title := fmt.Sprintf("%s/%s: %s; %d LoC", result.Owner, result.Repo, result.FilePath, slocCount)
 	body := Description(result)
 	labels := Labels(result)
+	state := State(result)
 
 	// TODO: labels based on lines of code
 	return github.IssueRequest{
 		Title:  &title,
 		Body:   &body,
 		Labels: &labels,
+		State:  &state,
 	}
 }
 
@@ -172,17 +174,29 @@ func QuoteFinding(result VetResult) string {
 // Labels returns the list of labels to be applied to a VetResult.
 func Labels(result VetResult) []string {
 	slocCount := result.End.Line - result.Start.Line
+	var labels []string
 	if slocCount < 10 {
-		return []string{"tiny"}
+		labels = append(labels, "tiny")
 	} else if slocCount < 50 {
-		return []string{"small"}
+		labels = append(labels, "small")
 	} else if slocCount < 100 {
-		return []string{"medium"}
+		labels = append(labels, "medium")
 	} else if slocCount < 250 {
-		return []string{"large"}
+		labels = append(labels, "large")
 	} else {
-		return []string{"huge"}
+		labels = append(labels, "huge")
 	}
+	if strings.HasSuffix(result.FilePath, "_test.go") {
+		labels = append(labels, "test")
+	}
+	return labels
+}
+
+func State(result VetResult) string {
+	if strings.HasSuffix(result.FilePath, "_test.go") {
+		return "closed"
+	}
+	return "open"
 }
 
 // IssueResult enriches a VetResult with some additional information.
