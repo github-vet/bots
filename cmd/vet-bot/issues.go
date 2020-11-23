@@ -174,7 +174,7 @@ func QuoteFinding(result VetResult) string {
 // Labels returns the list of labels to be applied to a VetResult.
 func Labels(result VetResult) []string {
 	slocCount := result.End.Line - result.Start.Line
-	var labels []string
+	labels := []string{"fresh"}
 	if slocCount < 10 {
 		labels = append(labels, "tiny")
 	} else if slocCount < 50 {
