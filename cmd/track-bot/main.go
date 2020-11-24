@@ -92,10 +92,16 @@ func parseOpts() opts {
 	flag.StringVar(&result.ExpertsFile, "experts", result.ExpertsFile, "path to experts CSV file")
 	flag.StringVar(&result.TrackingFile, "tracking", result.TrackingFile, "path to issue tracking CSV file")
 	flag.StringVar(&result.GophersFile, "gophers", result.GophersFile, "path to gophers CSV file")
-	flag.StringVar(&result.Owner, "owner", result.Owner, "owner of GitHub repo")
-	flag.StringVar(&result.Repo, "repo", result.Repo, "repository of GitHub repo")
+	ownerStr := flag.String("repo", result.Repo, "owner/repository of GitHub repo where issues should be tracked")
 	duration := flag.String("poll", "15m", "polling frequency")
 	flag.Parse()
+
+	repoToks := strings.Split(*ownerStr, "/")
+	if len(repoToks) != 2 {
+		log.Fatalf("could not parse repo flag '%s' which must be in owner/repository format", *ownerStr)
+	}
+	result.Owner = repoToks[0]
+	result.Repo = repoToks[1]
 
 	var err error
 	result.PollFrequency, err = time.ParseDuration(*duration)
