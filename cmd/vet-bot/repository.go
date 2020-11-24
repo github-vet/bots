@@ -126,10 +126,12 @@ func VetFile(contents []byte, path string, fset *token.FileSet, onFind Reporter)
 		log.Printf("failed inspection: %v", err)
 	}
 	pass.ResultOf[inspect.Analyzer] = inspection
+
 	_, err = loopclosure.Analyzer.Run(&pass)
 	if err != nil {
-		log.Printf("failed analysis: %v", err)
+		log.Printf("failed loopclosure analysis: %v", err)
 	}
+
 }
 
 // GetRootCommitID retrieves the root commit of the default branch of a repository.
