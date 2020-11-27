@@ -12,8 +12,8 @@ import (
 	"golang.org/x/oauth2"
 )
 
-const findingsOwner = "github-vet"
-const findingsRepo = "rangeclosure-findings"
+const findingsOwner = "kalexmills"         // "github-vet"
+const findingsRepo = "rangeloop-test-repo" //"rangeclosure-findings"
 
 // main runs the vetbot.
 //

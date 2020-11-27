@@ -65,8 +65,9 @@ func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) error {
 	}
 	reader := tar.NewReader(unzipped)
 	fset := token.NewFileSet()
-	reporter := ReportFinding(ir, fset, rootCommitID, repo)
 	log.Printf("reading contents of %s/%s", repo.Owner, repo.Repo)
+	contents := make(map[*token.File][]byte)
+	var files []*ast.File
 	for {
 		header, err := reader.Next()
 		if err == io.EOF {
@@ -91,9 +92,16 @@ func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) error {
 			if err != nil {
 				log.Printf("error reading contents of %s: %v", realName, err)
 			}
-			VetFile(bytes, realName, fset, reporter)
+			file, err := parser.ParseFile(fset, realName, string(bytes), parser.AllErrors)
+			if err != nil {
+				log.Printf("failed to parse file %s: %v", realName, err)
+				continue
+			}
+			files = append(files, file)
+			contents[fset.File(file.Pos())] = bytes
 		}
 	}
+	VetRepo(contents, files, fset, ReportFinding(ir, fset, rootCommitID, repo))
 	return nil
 }
 
@@ -107,18 +115,13 @@ func IgnoreFile(filename string) bool {
 
 // Reporter provides a means to yield a diagnostic function suitable for use by the analysis package which
 // also has access to the contents and name of the file being observed.
-type Reporter func(string, []byte) func(analysis.Diagnostic) // yay for currying!
+type Reporter func(map[*token.File][]byte) func(analysis.Diagnostic) // yay for currying!
 
-// VetFile parses and runs static analyis on the file contents it is passed.
-func VetFile(contents []byte, path string, fset *token.FileSet, onFind Reporter) {
-	file, err := parser.ParseFile(fset, path, string(contents), parser.AllErrors)
-	if err != nil {
-		log.Printf("failed to parse file %s: %v", path, err)
-	}
+func VetRepo(contents map[*token.File][]byte, files []*ast.File, fset *token.FileSet, onFind Reporter) {
 	pass := analysis.Pass{
 		Fset:     fset,
-		Files:    []*ast.File{file},
-		Report:   onFind(path, contents),
+		Files:    files,
+		Report:   onFind(contents),
 		ResultOf: make(map[*analysis.Analyzer]interface{}),
 	}
 	inspection, err := inspect.Analyzer.Run(&pass)
@@ -131,7 +134,6 @@ func VetFile(contents []byte, path string, fset *token.FileSet, onFind Reporter)
 	if err != nil {
 		log.Printf("failed loopclosure analysis: %v", err)
 	}
-
 }
 
 // GetRootCommitID retrieves the root commit of the default branch of a repository.
@@ -154,15 +156,14 @@ func GetRootCommitID(bot *VetBot, repo Repository) (string, error) {
 
 // ReportFinding curries several parameters into an appopriate Diagnostic report function.
 func ReportFinding(ir *IssueReporter, fset *token.FileSet, rootCommitID string, repo Repository) Reporter {
-	return func(path string, contents []byte) func(analysis.Diagnostic) {
+	return func(contents map[*token.File][]byte) func(analysis.Diagnostic) {
 		return func(d analysis.Diagnostic) {
 			// split off into a separate thread so any API call to create the issue doesn't block the remaining analysis.
-
 			ir.ReportVetResult(VetResult{
 				Repository:   repo,
-				FilePath:     path,
+				FilePath:     fset.File(d.Pos).Name(),
 				RootCommitID: rootCommitID,
-				FileContents: contents,
+				FileContents: contents[fset.File(d.Pos)],
 				Start:        fset.Position(d.Pos),
 				End:          fset.Position(d.End),
 			})
