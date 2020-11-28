@@ -25,6 +25,21 @@ type Result struct {
 	ApproxCallGraph map[Signature][]Signature
 }
 
+// CalledByGraph reverses the provided callgraph to create the called-by graph.
+func (r Result) CalledByGraph() map[Signature][]Signature {
+	result := make(map[Signature][]Signature)
+	for outer, callList := range r.ApproxCallGraph {
+		for _, called := range callList {
+			if _, ok := result[called]; ok {
+				result[called] = append(result[called], outer)
+			} else {
+				result[called] = []Signature{outer}
+			}
+		}
+	}
+	return result
+}
+
 func run(pass *analysis.Pass) (interface{}, error) {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
@@ -100,7 +115,6 @@ func makeApproxCallGraph(r Result) map[Signature][]Signature {
 // parseSignature retrieves a SignaturePos from a FuncDecl.
 func parseSignature(fdec *ast.FuncDecl) SignaturePos {
 	result := SignaturePos{Pos: fdec.Pos()}
-	// TODO: use fdec.Name.Obj??
 	result.Name = fdec.Name.Name // we ignore _many_ things; receiver type; package, path, etc.
 	if fdec.Recv != nil {
 		for _, x := range fdec.Recv.List {
@@ -178,6 +192,7 @@ func parseCall(call *ast.CallExpr, stack []ast.Node) Call {
 		result.Name = typed.Sel.Name
 		result.PtrReceiverFunc = proveRootIsPointerReceiver(typed)
 	}
+	// obtain the source positions of argument decalarations
 	for _, arg := range call.Args {
 		id, ok := arg.(*ast.Ident)
 		if !ok || id.Obj == nil {
@@ -196,19 +211,4 @@ func outermostFuncDecl(stack []ast.Node) *ast.FuncDecl {
 		}
 	}
 	return nil
-}
-
-// CalledByGraph reverses the provided directed callgraph, to create the called-by graph.
-func CalledByGraph(graph map[Signature][]Signature) map[Signature][]Signature {
-	result := make(map[Signature][]Signature)
-	for outer, callList := range graph {
-		for _, called := range callList {
-			if _, ok := result[called]; ok {
-				result[called] = append(result[called], outer)
-			} else {
-				result[called] = []Signature{outer}
-			}
-		}
-	}
-	return result
 }

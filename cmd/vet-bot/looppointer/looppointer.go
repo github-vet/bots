@@ -35,7 +35,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	inspect.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
 		id, rangeLoop, digg := search.Check(n, stack, pass)
 		if id != nil {
-			pass.ReportRangef(rangeLoop, "taking a pointer for the loop variable %s", id.Name)
+			pass.ReportRangef(rangeLoop, pass.Fset.File(n.Pos()).Name())
 		}
 		return digg
 	})

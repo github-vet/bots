@@ -75,7 +75,7 @@ func findSyncSignatures(sigs map[token.Pos]*SignatureData, graph map[callgraph.S
 		}
 	}
 	// any function which calls a function that starts a goroutine is potentially unsafe
-	for _, sig := range toCheck {
+	for _, sig := range toCheck { // TODO: this could probably be done via one BFS instead of tons
 		if bfsHitsUnsafe(sig, graph, unsafe) {
 			unsafe[sig] = struct{}{}
 		}
@@ -92,8 +92,9 @@ func findSyncSignatures(sigs map[token.Pos]*SignatureData, graph map[callgraph.S
 
 // bfsHitsUnsafe determines whether the root node can reach one an unsafe node via some path in the callgraph.
 func bfsHitsUnsafe(root callgraph.Signature, graph map[callgraph.Signature][]callgraph.Signature, unsafe map[callgraph.Signature]struct{}) bool {
-	frontier := []callgraph.Signature{root}
-	visited := make(map[callgraph.Signature]struct{})
+	frontier := make([]callgraph.Signature, 0, len(graph))
+	frontier = append(frontier, root)
+	visited := make(map[callgraph.Signature]struct{}, len(graph))
 	for len(frontier) > 0 {
 		curr := frontier[0]
 		visited[curr] = struct{}{}

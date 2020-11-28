@@ -2,14 +2,19 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"os"
+	"os/signal"
 	"sync"
 	"time"
 
 	"github.com/google/go-github/v32/github"
 	"github.com/kalexmills/github-vet/internal/ratelimit"
 	"golang.org/x/oauth2"
+
+	"net/http"
+	_ "net/http/pprof"
 )
 
 const findingsOwner = "kalexmills"         // "github-vet"
@@ -33,6 +38,8 @@ const findingsRepo = "rangeloop-test-repo" //"rangeclosure-findings"
 //
 // vetbot also creates a log file named 'MM-DD-YYYY.log', using the system date.
 func main() {
+	flag.Parse()
+
 	logFilename := time.Now().Format("01-02-2006") + ".log"
 	logFile, err := os.OpenFile(logFilename, os.O_APPEND|os.O_CREATE, 0666)
 	defer logFile.Close()
@@ -57,17 +64,29 @@ func main() {
 		log.Fatalf("can't start issue reporter: %v", err)
 	}
 
+	go sampleRepos(&vetBot, sampler, issueReporter)
+
+	http.ListenAndServe("localhost:8080", nil)
+}
+
+func sampleRepos(vetBot *VetBot, sampler *RepositorySampler, issueReporter *IssueReporter) {
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt)
 	for {
-		err := sampler.Sample(func(r Repository) error {
-			return VetRepositoryBulk(&vetBot, issueReporter, r)
-		})
-		if err != nil {
-			log.Printf("stopping scan due to error :%v", err)
-			break
+		select {
+		case <-interrupt:
+			vetBot.wg.Wait()
+			return
+		default:
+			err := sampler.Sample(func(r Repository) error {
+				return VetRepositoryBulk(vetBot, issueReporter, r)
+			})
+			if err != nil {
+				log.Printf("stopping scan due to error :%v", err)
+				break
+			}
 		}
 	}
-
-	vetBot.wg.Wait()
 }
 
 // VetBot wraps the GitHub client and context used for all GitHub API requests.

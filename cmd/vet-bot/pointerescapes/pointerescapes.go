@@ -48,6 +48,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		}
 		switch typed := n.(type) {
 		case *ast.FuncDecl:
+			// all pointer args start out safe.
 			safeArgs[n.Pos()] = parsePointerArgs(typed)
 			lastFuncDecl = typed.Pos()
 		case *ast.AssignStmt:
@@ -101,7 +102,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	for _, call := range graph.Calls {
 		callsBySignature[call.Signature] = append(callsBySignature[call.Signature], call)
 	}
-	calledByGraph := callgraph.CalledByGraph(graph.ApproxCallGraph)
+	calledByGraph := graph.CalledByGraph()
 	roots := roots(calledByGraph)
 	bfsVisit(roots, calledByGraph, func(sig callgraph.Signature) {
 		safeCallArgs := result.SafePtrs[sig]

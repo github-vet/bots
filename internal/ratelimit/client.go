@@ -178,6 +178,11 @@ func (c *Client) updateRateLimits(rate github.Rate, err error) {
 		defer c.mut.Unlock()
 		c.limited = true
 		c.resetAt = rate.Reset.Time
+	} else if abuse, ok := err.(*github.AbuseRateLimitError); ok {
+		c.mut.Lock()
+		defer c.mut.Unlock()
+		c.limited = true
+		c.resetAt = time.Now().Add(abuse.GetRetryAfter())
 	}
 }
 

@@ -70,7 +70,7 @@ func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) error {
 	reader := tar.NewReader(unzipped)
 	fset := token.NewFileSet()
 	log.Printf("reading contents of %s/%s", repo.Owner, repo.Repo)
-	contents := make(map[*token.File][]byte)
+	contents := make(map[string][]byte)
 	var files []*ast.File
 	for {
 		header, err := reader.Next()
@@ -102,7 +102,7 @@ func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) error {
 				continue
 			}
 			files = append(files, file)
-			contents[fset.File(file.Pos())] = bytes
+			contents[fset.File(file.Pos()).Name()] = bytes
 		}
 	}
 	VetRepo(contents, files, fset, ReportFinding(ir, fset, rootCommitID, repo))
@@ -119,9 +119,9 @@ func IgnoreFile(filename string) bool {
 
 // Reporter provides a means to yield a diagnostic function suitable for use by the analysis package which
 // also has access to the contents and name of the file being observed.
-type Reporter func(map[*token.File][]byte) func(analysis.Diagnostic) // yay for currying!
+type Reporter func(map[string][]byte) func(analysis.Diagnostic) // yay for currying!
 
-func VetRepo(contents map[*token.File][]byte, files []*ast.File, fset *token.FileSet, onFind Reporter) {
+func VetRepo(contents map[string][]byte, files []*ast.File, fset *token.FileSet, onFind Reporter) {
 	pass := analysis.Pass{
 		Fset:     fset,
 		Files:    files,
@@ -187,14 +187,15 @@ func GetRootCommitID(bot *VetBot, repo Repository) (string, error) {
 
 // ReportFinding curries several parameters into an appopriate Diagnostic report function.
 func ReportFinding(ir *IssueReporter, fset *token.FileSet, rootCommitID string, repo Repository) Reporter {
-	return func(contents map[*token.File][]byte) func(analysis.Diagnostic) {
+	return func(contents map[string][]byte) func(analysis.Diagnostic) {
 		return func(d analysis.Diagnostic) {
+			filename := d.Message
 			// split off into a separate thread so any API call to create the issue doesn't block the remaining analysis.
 			ir.ReportVetResult(VetResult{
 				Repository:   repo,
-				FilePath:     fset.File(d.Pos).Name(),
+				FilePath:     filename,
 				RootCommitID: rootCommitID,
-				FileContents: contents[fset.File(d.Pos)],
+				FileContents: contents[filename],
 				Start:        fset.Position(d.Pos),
 				End:          fset.Position(d.End),
 			})
