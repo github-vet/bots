@@ -61,7 +61,7 @@ type Call struct {
 	PtrReceiverFunc bool
 	OuterSignature  SignaturePos
 	Pos             token.Pos
-	Expr            *ast.CallExpr
+	ArgPos          []token.Pos
 }
 
 // Signature is an approximation of the information needed to make a function call. It captures only name
@@ -164,7 +164,7 @@ func SignatureFromCallExpr(call *ast.CallExpr) Signature {
 
 // parseCall retrieves relevant information about a function call.
 func parseCall(call *ast.CallExpr, stack []ast.Node) Call {
-	result := Call{Pos: call.Pos(), Expr: call}
+	result := Call{Pos: call.Pos()}
 	outerFunc := outermostFuncDecl(stack)
 	if outerFunc != nil {
 		result.OuterSignature = parseSignature(outerFunc)
@@ -177,6 +177,14 @@ func parseCall(call *ast.CallExpr, stack []ast.Node) Call {
 	case *ast.SelectorExpr:
 		result.Name = typed.Sel.Name
 		result.PtrReceiverFunc = proveRootIsPointerReceiver(typed)
+	}
+	for _, arg := range call.Args {
+		id, ok := arg.(*ast.Ident)
+		if !ok || id.Obj == nil {
+			result.ArgPos = append(result.ArgPos, token.NoPos)
+			continue
+		}
+		result.ArgPos = append(result.ArgPos, id.Obj.Pos())
 	}
 	return result
 }

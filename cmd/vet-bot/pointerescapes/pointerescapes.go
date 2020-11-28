@@ -37,7 +37,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 
 	// safeArgs is a map from the position of function declarations and the defintion of their safe pointer
 	// arguments to the position of the index of that pointer argument.
-	safeArgs := make(map[token.Pos]map[*ast.Object]int)
+	safeArgs := make(map[token.Pos]map[token.Pos]int) // TODO: better encapsulate this specialized type
 
 	// detects unsafe pointer arguments to functions. An unsafe pointer argument is an argument to a function
 	// which appears by itself on the RHS of an assignment statement, or are used inside a composite literal.
@@ -107,16 +107,12 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		safeCallArgs := result.SafePtrs[sig]
 		calls := callsBySignature[sig]
 		for _, call := range calls {
-			for idx, callArg := range call.Expr.Args {
-				id, ok := callArg.(*ast.Ident)
-				if !ok || id.Obj == nil {
-					continue
-				}
+			for idx, argPos := range call.ArgPos {
 				if contains(safeCallArgs, idx) { // skip if argument is known to be safe
 					continue
 				}
 				// argument is possibly unsafe, mark the argument from the outer call unsafe as well
-				outerIdx, ok := safeArgs[call.OuterSignature.Pos][id.Obj]
+				outerIdx, ok := safeArgs[call.OuterSignature.Pos][argPos]
 				if !ok {
 					continue // result can't be in SafePtrs, since it was created from safeArgs
 				}
@@ -195,25 +191,25 @@ func intersect(A, B []int) []int {
 	return result
 }
 
-func removeUsedIdents(ptrs map[*ast.Object]int, rhs []ast.Expr) map[*ast.Object]int {
+func removeUsedIdents(ptrs map[token.Pos]int, rhs []ast.Expr) map[token.Pos]int {
 	for _, expr := range rhs {
 		id, ok := expr.(*ast.Ident)
 		if !ok || id.Obj == nil {
 			continue
 		}
-		delete(ptrs, id.Obj)
+		delete(ptrs, id.Obj.Pos())
 	}
 	return ptrs
 }
 
-func parsePointerArgs(n *ast.FuncDecl) map[*ast.Object]int {
-	result := make(map[*ast.Object]int)
+func parsePointerArgs(n *ast.FuncDecl) map[token.Pos]int {
+	result := make(map[token.Pos]int)
 	argID := 0
 	if n.Type.Params != nil {
 		for _, x := range n.Type.Params.List {
 			if _, ok := x.Type.(*ast.StarExpr); ok {
 				for i := 0; i < len(x.Names); i++ {
-					result[x.Names[i].Obj] = argID
+					result[x.Names[i].Obj.Pos()] = argID
 					argID++
 				}
 			} else {
