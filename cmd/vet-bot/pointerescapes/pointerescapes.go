@@ -95,10 +95,18 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	//
 	// To check this, we perform a series of breadth-first-searches through the calledBy graph, disabling all unsafe
 	// arguments found along the way.
-	calledByGraph := callgraph.CalledByGraph(graph.ApproxCallGraph)
+
+	// we can do it in one BFS if we visit each call when we visit its signature.
+	callsBySignature := make(map[callgraph.Signature][]callgraph.Call)
 	for _, call := range graph.Calls {
-		bfsVisit(call.Signature, calledByGraph, func(sig callgraph.Signature) {
-			safeCallArgs := result.SafePtrs[sig]
+		callsBySignature[call.Signature] = append(callsBySignature[call.Signature], call)
+	}
+	calledByGraph := callgraph.CalledByGraph(graph.ApproxCallGraph)
+	roots := roots(calledByGraph)
+	bfsVisit(roots, calledByGraph, func(sig callgraph.Signature) {
+		safeCallArgs := result.SafePtrs[sig]
+		calls := callsBySignature[sig]
+		for _, call := range calls {
 			for idx, callArg := range call.Expr.Args {
 				id, ok := callArg.(*ast.Ident)
 				if !ok || id.Obj == nil {
@@ -115,13 +123,30 @@ func run(pass *analysis.Pass) (interface{}, error) {
 				outerSig := call.OuterSignature.Signature
 				result.SafePtrs[outerSig] = remove(result.SafePtrs[outerSig], outerIdx)
 			}
-		})
-	}
+		}
+	})
 	return &result, nil
 }
 
-func bfsVisit(root callgraph.Signature, graph map[callgraph.Signature][]callgraph.Signature, visit func(callgraph.Signature)) {
-	frontier := []callgraph.Signature{root}
+func roots(graph map[callgraph.Signature][]callgraph.Signature) []callgraph.Signature {
+	sigSet := make(map[callgraph.Signature]struct{})
+	for sig := range graph {
+		sigSet[sig] = struct{}{}
+	}
+	for _, callers := range graph {
+		for _, caller := range callers {
+			delete(sigSet, caller)
+		}
+	}
+	var result []callgraph.Signature
+	for sig := range sigSet {
+		result = append(result, sig)
+	}
+	return result
+}
+
+func bfsVisit(roots []callgraph.Signature, graph map[callgraph.Signature][]callgraph.Signature, visit func(callgraph.Signature)) {
+	frontier := roots
 	visited := make(map[callgraph.Signature]struct{})
 	for len(frontier) > 0 {
 		curr := frontier[0]

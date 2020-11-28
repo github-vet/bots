@@ -21,6 +21,6 @@ func bar(x, y *int) A {
 var z *int
 
 func unsafe(x *int) *int {
-	z = unsafe(x)
+	z = x
 	return z
 }
