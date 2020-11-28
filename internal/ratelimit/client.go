@@ -158,6 +158,7 @@ func (c *Client) GetRepositoryBranch(owner, repo, branch string) (*github.Branch
 }
 
 var skew time.Duration = time.Second
+var minAbuseRetry time.Duration = 2 * time.Minute
 
 func (c *Client) blockOnLimit() {
 	c.count++
@@ -182,7 +183,7 @@ func (c *Client) updateRateLimits(rate github.Rate, err error) {
 		c.mut.Lock()
 		defer c.mut.Unlock()
 		c.limited = true
-		c.resetAt = time.Now().Add(abuse.GetRetryAfter())
+		c.resetAt = time.Now().Add(max(minAbuseRetry, abuse.GetRetryAfter()))
 	}
 }
 
@@ -190,4 +191,11 @@ func (c *Client) isLimited() bool {
 	c.mut.Lock()
 	defer c.mut.Unlock()
 	return c.limited
+}
+
+func max(a, b time.Duration) time.Duration {
+	if a < b {
+		return b
+	}
+	return a
 }
