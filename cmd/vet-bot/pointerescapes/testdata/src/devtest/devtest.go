@@ -20,6 +20,7 @@ func bar(x, y *int) A {
 
 var z *int
 
-func unsafe(x *int) {
-	z = x
+func unsafe(x *int) *int {
+	z = unsafe(x)
+	return z
 }

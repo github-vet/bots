@@ -4,6 +4,9 @@ import (
 	"go/ast"
 	"go/token"
 
+	"github.com/kalexmills/github-vet/cmd/vet-bot/callgraph"
+	"github.com/kalexmills/github-vet/cmd/vet-bot/nogofunc"
+	"github.com/kalexmills/github-vet/cmd/vet-bot/pointerescapes"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -14,16 +17,8 @@ var Analyzer = &analysis.Analyzer{
 	Doc:              "checks for pointers to enclosing loop variables; modified for sweeping GitHub",
 	Run:              run,
 	RunDespiteErrors: true,
-	Requires:         []*analysis.Analyzer{inspect.Analyzer},
-	// ResultType reflect.Type
-	// FactTypes []Fact
+	Requires:         []*analysis.Analyzer{inspect.Analyzer, callgraph.Analyzer, nogofunc.Analyzer, pointerescapes.Analyzer},
 }
-
-func init() {
-	//	Analyzer.Flags.StringVar(&v, "name", "default", "description")
-}
-
-type A int
 
 func run(pass *analysis.Pass) (interface{}, error) {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
@@ -38,7 +33,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	}
 
 	inspect.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
-		id, rangeLoop, digg := search.Check(n, stack)
+		id, rangeLoop, digg := search.Check(n, stack, pass)
 		if id != nil {
 			pass.ReportRangef(rangeLoop, "taking a pointer for the loop variable %s", id.Name)
 		}
@@ -53,12 +48,12 @@ type Searcher struct {
 	Stats map[token.Pos]*ast.RangeStmt
 }
 
-func (s *Searcher) Check(n ast.Node, stack []ast.Node) (*ast.Ident, *ast.RangeStmt, bool) {
+func (s *Searcher) Check(n ast.Node, stack []ast.Node, pass *analysis.Pass) (*ast.Ident, *ast.RangeStmt, bool) {
 	switch typed := n.(type) {
 	case *ast.RangeStmt:
 		s.parseRangeStmt(typed)
 	case *ast.UnaryExpr:
-		return s.checkUnaryExpr(typed, stack)
+		return s.checkUnaryExpr(typed, stack, pass)
 	}
 	return nil, nil, true
 }
@@ -110,7 +105,7 @@ func (s *Searcher) callExpr(stack []ast.Node) *ast.CallExpr {
 	return nil
 }
 
-func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node) (*ast.Ident, *ast.RangeStmt, bool) {
+func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *analysis.Pass) (*ast.Ident, *ast.RangeStmt, bool) {
 	if n.Op != token.AND {
 		return nil, nil, true
 	}
@@ -141,17 +136,39 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node) (*ast.Iden
 		return nil, nil, true
 	}
 
-	// If the identity is used in an assignStmt, it must be on the right-hand side of the '='
+	// If the identity is used in an assignStmt, it must be on the right-hand side of a '=' token by itself
 	if assignStmt != nil {
-		for _, expr := range assignStmt.Rhs {
-			if expr == child {
-				return id, rangeLoop, false
+		if assignStmt.Tok != token.DEFINE {
+			for _, expr := range assignStmt.Rhs {
+				if expr == child {
+					return id, rangeLoop, false
+				}
 			}
 		}
 		return nil, nil, true
 	}
 
-	return id, rangeLoop, false
+	// certain call expressions are safe
+	syncFuncs := pass.ResultOf[nogofunc.Analyzer].(*nogofunc.Result).SyncSignatures
+	safePtrs := pass.ResultOf[pointerescapes.Analyzer].(*pointerescapes.Result).SafePtrs
+	sig := callgraph.SignatureFromCallExpr(callExpr)
+	if _, ok := syncFuncs[sig]; !ok {
+		// TODO: report 'expect a go-routine is called'
+		return id, rangeLoop, false
+	}
+	var callIdx int
+	for idx, expr := range callExpr.Args {
+		if expr == n {
+			callIdx = idx
+		}
+	}
+	for _, safeIdx := range safePtrs[sig] {
+		if callIdx == safeIdx {
+			return nil, nil, true
+		}
+	}
+	// TODO: repo 'expect pointer escapes'
+	return id, rangeLoop, true
 }
 
 // Get variable identity

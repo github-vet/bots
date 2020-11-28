@@ -14,7 +14,11 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v32/github"
+	"github.com/kalexmills/github-vet/cmd/vet-bot/callgraph"
 	"github.com/kalexmills/github-vet/cmd/vet-bot/loopclosure"
+	"github.com/kalexmills/github-vet/cmd/vet-bot/looppointer"
+	"github.com/kalexmills/github-vet/cmd/vet-bot/nogofunc"
+	"github.com/kalexmills/github-vet/cmd/vet-bot/pointerescapes"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 )
@@ -124,15 +128,42 @@ func VetRepo(contents map[*token.File][]byte, files []*ast.File, fset *token.Fil
 		Report:   onFind(contents),
 		ResultOf: make(map[*analysis.Analyzer]interface{}),
 	}
-	inspection, err := inspect.Analyzer.Run(&pass)
+	var err error
+	log.Println("\trunning inspection")
+	pass.ResultOf[inspect.Analyzer], err = inspect.Analyzer.Run(&pass)
 	if err != nil {
-		log.Printf("failed inspection: %v", err)
+		log.Printf("failed inspection analysis: %v", err)
+		return
 	}
-	pass.ResultOf[inspect.Analyzer] = inspection
+
+	log.Println("\trunning callgraph")
+	pass.ResultOf[callgraph.Analyzer], err = callgraph.Analyzer.Run(&pass)
+	if err != nil {
+		log.Printf("failed callgraph analysis: %v", err)
+		return
+	}
+
+	log.Println("\trunning nogofunc")
+	pass.ResultOf[nogofunc.Analyzer], err = nogofunc.Analyzer.Run(&pass)
+	if err != nil {
+		log.Printf("failed nogofunc analysis: %v", err)
+		return
+	}
+
+	log.Println("\trunning pointerescapes")
+	pass.ResultOf[pointerescapes.Analyzer], err = pointerescapes.Analyzer.Run(&pass)
+	if err != nil {
+		log.Printf("failed pointerescapes analysis: %v", err)
+		return
+	}
 
 	_, err = loopclosure.Analyzer.Run(&pass)
 	if err != nil {
 		log.Printf("failed loopclosure analysis: %v", err)
+	}
+	_, err = looppointer.Analyzer.Run(&pass)
+	if err != nil {
+		log.Printf("failed looppointer analysis: %v", err)
 	}
 }
 

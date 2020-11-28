@@ -1,7 +1,6 @@
 package pointerescapes
 
 import (
-	"fmt"
 	"go/ast"
 	"go/token"
 	"reflect"
@@ -91,7 +90,6 @@ func run(pass *analysis.Pass) (interface{}, error) {
 			}
 		}
 	}
-	fmt.Println(result.SafePtrs)
 	// Threads the notion of an 'unsafe pointer' back through the approximate call graph, by marking as unsafe any
 	// pointer argument which is passed as an unsafe pointer to another function.
 	//
@@ -119,7 +117,6 @@ func run(pass *analysis.Pass) (interface{}, error) {
 			}
 		})
 	}
-	fmt.Println(result)
 	return &result, nil
 }
 
@@ -200,13 +197,4 @@ func parsePointerArgs(n *ast.FuncDecl) map[*ast.Object]int {
 		}
 	}
 	return result
-}
-
-func innermostFuncDecl(stack []ast.Node) token.Pos {
-	for i := len(stack) - 1; i <= 0; i-- {
-		if _, ok := stack[i].(*ast.FuncDecl); ok {
-			return stack[i].Pos()
-		}
-	}
-	return token.NoPos
 }

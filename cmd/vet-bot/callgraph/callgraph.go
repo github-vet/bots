@@ -191,7 +191,7 @@ func outermostFuncDecl(stack []ast.Node) *ast.FuncDecl {
 	return nil
 }
 
-// CalledByGraph reverses the provided directed callgraph, to create the call-by graph.
+// CalledByGraph reverses the provided directed callgraph, to create the called-by graph.
 func CalledByGraph(graph map[Signature][]Signature) map[Signature][]Signature {
 	result := make(map[Signature][]Signature)
 	for outer, callList := range graph {

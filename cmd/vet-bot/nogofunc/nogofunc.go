@@ -21,7 +21,7 @@ var Analyzer = &analysis.Analyzer{
 }
 
 type Result struct {
-	SyncSignatures []callgraph.Signature
+	SyncSignatures map[callgraph.Signature]struct{}
 }
 
 func run(pass *analysis.Pass) (interface{}, error) {
@@ -61,7 +61,7 @@ type SignatureData struct {
 
 // findSyncSignatures finds a list of Signatures for functions which do not call goroutines or call functions which
 // call goroutines.
-func findSyncSignatures(sigs map[token.Pos]*SignatureData, graph map[callgraph.Signature][]callgraph.Signature) []callgraph.Signature {
+func findSyncSignatures(sigs map[token.Pos]*SignatureData, graph map[callgraph.Signature][]callgraph.Signature) map[callgraph.Signature]struct{} {
 	var toCheck []callgraph.Signature
 	unsafe := make(map[callgraph.Signature]struct{})
 	for _, sig := range sigs {
@@ -78,10 +78,10 @@ func findSyncSignatures(sigs map[token.Pos]*SignatureData, graph map[callgraph.S
 		}
 	}
 	// remove unsafe signatures from the list of results
-	var result []callgraph.Signature
+	result := make(map[callgraph.Signature]struct{})
 	for _, sig := range toCheck {
 		if _, ok := unsafe[sig]; !ok {
-			result = append(result, sig)
+			result[sig] = struct{}{}
 		}
 	}
 	return result
