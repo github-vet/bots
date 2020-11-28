@@ -11,6 +11,9 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
+// Analyzer provides a set of function signatures whose invocations definitely do not start any
+// goroutines. False-positives should be expected, as no type-checking information is used during the
+// analysis, which relies only on approximate knowledge of the call-graph.
 var Analyzer = &analysis.Analyzer{
 	Name:             "nogofunc",
 	Doc:              "gathers a list of function signatures whose invocations definitely do not start a goroutine",
@@ -73,9 +76,8 @@ func findSyncSignatures(sigs map[token.Pos]*SignatureFacts, graph *callgraph.Cal
 			toCheck = append(toCheck, sig.Signature)
 		}
 	}
-	// any function which calls a function that starts a goroutine is potentially unsafe. To find out which
-	// functions could start a goroutine in the course of their execution, we run a BFS over the called-by
-	// graph starting from all the unsafe nodes.
+	// any function which calls a function that starts a goroutine is potentially unsafe. We run a BFS over the called-by
+	// graph starting from the functions which start goroutines. Any function they are called by is marked as unsafe.
 	unsafeNodes := make([]callgraph.Signature, 0, len(unsafe))
 	for sig := range unsafe {
 		unsafeNodes = append(unsafeNodes, sig)

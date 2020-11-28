@@ -10,6 +10,7 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
+// Analyzer provides an approximate callgraph based on function name and arity.
 var Analyzer = &analysis.Analyzer{
 	Name:             "callgraph",
 	Doc:              "computes an approximate callgraph based on function arity, name, and nothing else",

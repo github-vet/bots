@@ -11,6 +11,10 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
+// Analyzer gathers a list of function signatures and indices of their pointer arguments which can be proven
+// safe. A pointer argument to a function is considered safe if 1) it does not appear alone on the right-hand side
+// of any assignment statement in the function body, and 2) it does not appear alone in the body of any composite
+// literal.
 var Analyzer = &analysis.Analyzer{
 	Name:             "pointerescapes",
 	Doc:              "gathers a list of function signatures and their pointer arguments which definitely do not escape during the lifetime of the function",
@@ -48,7 +52,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		}
 		switch typed := n.(type) {
 		case *ast.FuncDecl:
-			// all pointer args start out safe.
+			// all pointer args are safe until proven otherwise
 			safeArgs[n.Pos()] = parsePointerArgs(typed)
 			lastFuncDecl = typed.Pos()
 		case *ast.AssignStmt:
@@ -176,11 +180,19 @@ func intersect(A, B []int) []int {
 
 func removeUsedIdents(ptrs map[token.Pos]int, rhs []ast.Expr) map[token.Pos]int {
 	for _, expr := range rhs {
-		id, ok := expr.(*ast.Ident)
-		if !ok || id.Obj == nil {
-			continue
+		switch typed := expr.(type) {
+		case *ast.Ident:
+			if typed.Obj == nil {
+				continue
+			}
+			delete(ptrs, typed.Obj.Pos())
+		case *ast.UnaryExpr:
+			id, ok := typed.X.(*ast.Ident)
+			if !ok || id.Obj == nil {
+				continue
+			}
+			delete(ptrs, id.Obj.Pos())
 		}
-		delete(ptrs, id.Obj.Pos())
 	}
 	return ptrs
 }
