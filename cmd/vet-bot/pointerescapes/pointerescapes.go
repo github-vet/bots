@@ -24,9 +24,30 @@ var Analyzer = &analysis.Analyzer{
 	ResultType:       reflect.TypeOf((*Result)(nil)),
 }
 
+// Result maps function signatures to the indices of all of their safe pointer arguments.
 type Result struct {
-	// SafeArgs maps function signatures to a list of indices of pointer arguments which are safe.
+	// SafePtrs maps function signatures to a list of indices of pointer arguments which are safe.
 	SafePtrs map[callgraph.Signature][]int
+}
+
+type safeArgMap map[token.Pos]map[token.Pos]int
+
+func (sam safeArgMap) markUnsafe(funcPos token.Pos, args []ast.Expr) {
+	for _, expr := range args {
+		switch typed := expr.(type) {
+		case *ast.Ident:
+			if typed.Obj == nil {
+				continue
+			}
+			delete(sam[funcPos], typed.Obj.Pos())
+		case *ast.UnaryExpr:
+			id, ok := typed.X.(*ast.Ident)
+			if !ok || id.Obj == nil {
+				continue
+			}
+			delete(sam[funcPos], id.Obj.Pos())
+		}
+	}
 }
 
 func run(pass *analysis.Pass) (interface{}, error) {
@@ -39,12 +60,11 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		(*ast.CompositeLit)(nil),
 	}
 
-	// safeArgs is a map from the position of function declarations and the defintion of their safe pointer
-	// arguments to the position of the index of that pointer argument.
-	safeArgs := make(map[token.Pos]map[token.Pos]int) // TODO: better encapsulate this specialized type
+	safeArgs := safeArgMap(make(map[token.Pos]map[token.Pos]int))
 
-	// detects unsafe pointer arguments to functions. An unsafe pointer argument is an argument to a function
-	// which appears by itself on the RHS of an assignment statement, or are used inside a composite literal.
+	// since lastFuncDecl is effectively global, the inspection here will attempt to remove arguments
+	// that were never added to safeArgs in case of top-level CompositeLit or AssignStmts, without
+	// affecting the result.
 	var lastFuncDecl token.Pos
 	inspect.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
 		if !push {
@@ -52,24 +72,24 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		}
 		switch typed := n.(type) {
 		case *ast.FuncDecl:
-			// all pointer args are safe until proven otherwise
+			// all pointer args are safe until proven otherwise.
 			safeArgs[n.Pos()] = parsePointerArgs(typed)
 			lastFuncDecl = typed.Pos()
 		case *ast.AssignStmt:
 			// a pointer argument used on the RHS of an assign statement is marked unsafe.
 			if _, ok := safeArgs[lastFuncDecl]; ok {
-				safeArgs[lastFuncDecl] = removeUsedIdents(safeArgs[lastFuncDecl], typed.Rhs)
+				safeArgs.markUnsafe(lastFuncDecl, typed.Rhs)
 			}
 		case *ast.CompositeLit:
 			// a pointer argument used inside a composite literal is marked unsafe.
 			if _, ok := safeArgs[lastFuncDecl]; ok {
-				safeArgs[lastFuncDecl] = removeUsedIdents(safeArgs[lastFuncDecl], typed.Elts)
+				safeArgs.markUnsafe(lastFuncDecl, typed.Elts)
 			}
 		}
 		return true
 	})
 
-	// construct the set of safe pointer arguments.
+	// construct an initial set of safe pointer arguments.
 	result := Result{
 		SafePtrs: make(map[callgraph.Signature][]int),
 	}
@@ -83,66 +103,62 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	for pos, args := range safeArgs {
 		sig := signaturesByPos[pos].Signature
 		if _, ok := result.SafePtrs[sig]; ok {
-			// take the intersection of all safe pointers
-			var argSlice []int
+			// take the intersection of all safe pointers; we have to do this because all our analysis
+			// is based on an approximation of the call-graph.
+			var argIdxs []int
 			for _, arg := range args {
-				argSlice = append(argSlice, arg)
+				argIdxs = append(argIdxs, arg)
 			}
-			result.SafePtrs[sig] = intersect(result.SafePtrs[sig], argSlice)
+			result.SafePtrs[sig] = intersect(result.SafePtrs[sig], argIdxs)
 		} else {
 			for _, idx := range args {
 				result.SafePtrs[sig] = append(result.SafePtrs[sig], idx)
 			}
 		}
 	}
-	// Threads the notion of an 'unsafe pointer' back through the approximate call graph, by marking as unsafe any
-	// pointer argument which is passed as an unsafe pointer to another function.
-	//
-	// To check this, we perform a series of breadth-first-searches through the calledBy graph, disabling all unsafe
-	// arguments found along the way.
-
-	// we can do it in one BFS if we visit each call when we visit its signature.
+	// Threads the notion of an 'unsafe pointer argument' through the call-graph, by performing a breadth-first search
+	// through the called-by graph, and marking unsafe caller arguments as we visit each call-site.
 	callsBySignature := make(map[callgraph.Signature][]callgraph.Call)
 	for _, call := range graph.Calls {
 		callsBySignature[call.Signature] = append(callsBySignature[call.Signature], call)
 	}
-	graph.ApproxCallGraph.CalledByGraphBFS(graph.ApproxCallGraph.CalledByRoots(), func(sig callgraph.Signature) {
-		safeCallArgs := result.SafePtrs[sig]
-		calls := callsBySignature[sig]
+	graph.ApproxCallGraph.CalledByGraphBFS(graph.ApproxCallGraph.CalledByRoots(), func(callSig callgraph.Signature) {
+		// loop over all calls with a matching signature and mark any unsafe arguments found in the signature of their caller.
+		safeArgIndexes := result.SafePtrs[callSig]
+		calls := callsBySignature[callSig]
 		for _, call := range calls {
 			for idx, argPos := range call.ArgDeclPos {
-				if contains(safeCallArgs, idx) { // skip if argument is known to be safe
+				if contains(safeArgIndexes, idx) {
 					continue
 				}
-				// argument is possibly unsafe, mark the argument from the outer call unsafe as well
-				outerIdx, ok := safeArgs[call.OuterSignature.Pos][argPos]
+				// argument passed in this call is possibly unsafe, so mark the argument from the caller unsafe as well
+				argIdx, ok := safeArgs[call.Caller.Pos][argPos]
 				if !ok {
-					continue // result can't be in SafePtrs, since it was created from safeArgs
+					continue // callerIdx can't be in SafePtrs, since SafePtrs was created from safeArgs
 				}
-				outerSig := call.OuterSignature.Signature
-				result.SafePtrs[outerSig] = remove(result.SafePtrs[outerSig], outerIdx)
+				result.SafePtrs[call.Caller.Signature] = remove(result.SafePtrs[call.Caller.Signature], argIdx)
 			}
 		}
 	})
 	return &result, nil
 }
 
-func bfsVisit(roots []callgraph.Signature, graph map[callgraph.Signature][]callgraph.Signature, visit func(callgraph.Signature)) {
-	frontier := make([]callgraph.Signature, 0, len(graph))
-	frontier = append(frontier, roots...)
-	visited := make(map[callgraph.Signature]struct{}, len(graph))
-	for len(frontier) > 0 {
-		curr := frontier[0]
-		visited[curr] = struct{}{}
-		frontier = frontier[1:]
-		visit(curr)
-		for _, child := range graph[curr] {
-			if _, ok := visited[child]; !ok {
-				frontier = append(frontier, child)
+func parsePointerArgs(n *ast.FuncDecl) map[token.Pos]int {
+	result := make(map[token.Pos]int)
+	argID := 0
+	if n.Type.Params != nil {
+		for _, x := range n.Type.Params.List {
+			if _, ok := x.Type.(*ast.StarExpr); ok {
+				for i := 0; i < len(x.Names); i++ {
+					result[x.Names[i].Obj.Pos()] = argID
+					argID++
+				}
+			} else {
+				argID += len(x.Names)
 			}
 		}
 	}
-	return
+	return result
 }
 
 func remove(arr []int, v int) []int {
@@ -172,43 +188,6 @@ func intersect(A, B []int) []int {
 			if a == b {
 				result = append(result, a)
 				break
-			}
-		}
-	}
-	return result
-}
-
-func removeUsedIdents(ptrs map[token.Pos]int, rhs []ast.Expr) map[token.Pos]int {
-	for _, expr := range rhs {
-		switch typed := expr.(type) {
-		case *ast.Ident:
-			if typed.Obj == nil {
-				continue
-			}
-			delete(ptrs, typed.Obj.Pos())
-		case *ast.UnaryExpr:
-			id, ok := typed.X.(*ast.Ident)
-			if !ok || id.Obj == nil {
-				continue
-			}
-			delete(ptrs, id.Obj.Pos())
-		}
-	}
-	return ptrs
-}
-
-func parsePointerArgs(n *ast.FuncDecl) map[token.Pos]int {
-	result := make(map[token.Pos]int)
-	argID := 0
-	if n.Type.Params != nil {
-		for _, x := range n.Type.Params.List {
-			if _, ok := x.Type.(*ast.StarExpr); ok {
-				for i := 0; i < len(x.Names); i++ {
-					result[x.Names[i].Obj.Pos()] = argID
-					argID++
-				}
-			} else {
-				argID += len(x.Names)
 			}
 		}
 	}

@@ -23,6 +23,7 @@ var Analyzer = &analysis.Analyzer{
 	ResultType:       reflect.TypeOf((*Result)(nil)),
 }
 
+// Result is a set of signatures which are guaranteed not to start any goroutines.
 type Result struct {
 	SyncSignatures map[callgraph.Signature]struct{}
 }

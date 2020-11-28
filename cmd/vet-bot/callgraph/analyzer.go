@@ -34,8 +34,8 @@ type Result struct {
 // which they are called and position of their argument declarations.
 type Call struct {
 	Signature
-	// OuterSignature is the signature and position of the function which makes this call.
-	OuterSignature SignaturePos
+	// Caller is the signature and position of the function which makes this call.
+	Caller SignaturePos
 	// Pos is the source position of the call.
 	Pos token.Pos
 	// ArgDeclPos is the source position of each call arguments's declaration.
@@ -105,7 +105,7 @@ func parseCall(call *ast.CallExpr, stack []ast.Node) Call {
 	result := Call{Pos: call.Pos()}
 	outerFunc := outermostFuncDecl(stack)
 	if outerFunc != nil {
-		result.OuterSignature = parseSignature(outerFunc)
+		result.Caller = parseSignature(outerFunc)
 	}
 	result.Arity = len(call.Args)
 	switch typed := call.Fun.(type) {
@@ -147,17 +147,17 @@ func makeCallGraph(r Result) CallGraph {
 		return id
 	}
 	for _, call := range r.Calls {
-		outerSig := call.OuterSignature.Signature
-		outerID, ok := result.signatureToId[outerSig]
+		callerSig := call.Caller.Signature
+		callerID, ok := result.signatureToId[callerSig]
 		if !ok {
-			outerID = insertSignature(outerSig)
+			callerID = insertSignature(callerSig)
 		}
 		callID, ok := result.signatureToId[call.Signature]
 		if !ok {
 			callID = insertSignature(call.Signature)
 		}
-		if !contains(result.callGraph[outerID], callID) {
-			result.callGraph[outerID] = append(result.callGraph[outerID], callID)
+		if !contains(result.callGraph[callerID], callID) {
+			result.callGraph[callerID] = append(result.callGraph[callerID], callID)
 		}
 	}
 	return result

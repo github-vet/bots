@@ -18,7 +18,7 @@ type CallGraph struct {
 }
 
 // CalledByRoots returns a list of the nodes in the called-by graph which do not have any incoming edges (i.e.
-// the signatures of function which do not call any functions).
+// the signatures of functions which do not call any functions).
 func (cg *CallGraph) CalledByRoots() []Signature {
 	cg.lazyInitCalledBy()
 	idSet := make(map[int]struct{})
