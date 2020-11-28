@@ -148,7 +148,7 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 		return nil, nil, true
 	}
 
-	// certain call expressions are safe
+	// certain call expressions are safe.
 	syncFuncs := pass.ResultOf[nogofunc.Analyzer].(*nogofunc.Result).SyncSignatures
 	safePtrs := pass.ResultOf[pointerescapes.Analyzer].(*pointerescapes.Result).SafePtrs
 	sig := callgraph.SignatureFromCallExpr(callExpr)
@@ -167,19 +167,16 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 			return nil, nil, true
 		}
 	}
-	// TODO: repo 'expect pointer escapes'
+	// TODO: report 'expect pointer escapes'
 	return id, rangeLoop, true
 }
 
 // Get variable identity
 func getIdentity(expr ast.Expr) *ast.Ident {
 	switch typed := expr.(type) {
-	case *ast.SelectorExpr: // TODO: this should not trigger on selector expressions for our use-case
-		// Get parent identity; i.e. `a` of the `a.b`.
-		return getIdentity(typed.X)
 
+	// we only care if an address is taken on its own
 	case *ast.Ident:
-		// Get simple identity; i.e. `a` of the `a`.
 		if typed.Obj == nil {
 			return nil
 		}
