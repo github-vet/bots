@@ -36,7 +36,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	}
 
 	// safeArgs is a map from the position of function declarations and the defintion of their safe pointer
-	// arguments to the index of that pointer argument.
+	// arguments to the position of the index of that pointer argument.
 	safeArgs := make(map[token.Pos]map[*ast.Object]int)
 
 	// detects unsafe pointer arguments to functions. An unsafe pointer argument is an argument to a function

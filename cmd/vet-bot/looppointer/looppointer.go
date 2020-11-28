@@ -140,7 +140,7 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 	if assignStmt != nil {
 		if assignStmt.Tok != token.DEFINE {
 			for _, expr := range assignStmt.Rhs {
-				if expr == child {
+				if expr == child && child == n {
 					return id, rangeLoop, false
 				}
 			}
@@ -176,7 +176,7 @@ func getIdentity(expr ast.Expr) *ast.Ident {
 	switch typed := expr.(type) {
 	case *ast.SelectorExpr:
 		// Get parent identity; i.e. `a` of the `a.b`.
-		return selectorRoot(typed)
+		return getIdentity(typed.X)
 
 	case *ast.Ident:
 		// Get simple identity; i.e. `a` of the `a`.
@@ -184,18 +184,6 @@ func getIdentity(expr ast.Expr) *ast.Ident {
 			return nil
 		}
 		return typed
-	}
-	return nil
-}
-
-func selectorRoot(selector *ast.SelectorExpr) *ast.Ident {
-	var exp ast.Expr = selector
-	// climb up the SelectorExpr until the root is reached
-	for typed, ok := exp.(*ast.SelectorExpr); ok; typed, ok = exp.(*ast.SelectorExpr) {
-		exp = typed.X
-	}
-	if id, ok := exp.(*ast.Ident); ok {
-		return id
 	}
 	return nil
 }

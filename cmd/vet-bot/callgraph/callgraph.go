@@ -77,7 +77,6 @@ type SignaturePos struct {
 	PtrReceiverFunc bool
 	ArgPointers     []bool
 	Pos             token.Pos
-	Decl            *ast.FuncDecl
 }
 
 // makeApproxCallGraph constructs an approxmiate call-graph, relying on incomplete information found in the function
@@ -100,7 +99,7 @@ func makeApproxCallGraph(r Result) map[Signature][]Signature {
 
 // parseSignature retrieves a SignaturePos from a FuncDecl.
 func parseSignature(fdec *ast.FuncDecl) SignaturePos {
-	result := SignaturePos{Pos: fdec.Pos(), Decl: fdec}
+	result := SignaturePos{Pos: fdec.Pos()}
 	// TODO: use fdec.Name.Obj??
 	result.Name = fdec.Name.Name // we ignore _many_ things; receiver type; package, path, etc.
 	if fdec.Recv != nil {

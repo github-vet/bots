@@ -11,6 +11,7 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
+// TODO: something has a memory leak -.-
 var Analyzer = &analysis.Analyzer{
 	Name:             "nogofunc",
 	Doc:              "gathers a list of function signatures whose invocations definitely do not start a goroutine",
@@ -45,7 +46,9 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		switch n.(type) {
 		case *ast.GoStmt: // goroutine here could be nested inside a function literal; we count it anyway.
 			outerFunc := outermostFuncDecl(stack)
-			sigByPos[outerFunc.Pos()].StartsGoroutine = true
+			if outerFunc != nil {
+				sigByPos[outerFunc.Pos()].StartsGoroutine = true
+			}
 		}
 		return true
 	})
