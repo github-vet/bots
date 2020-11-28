@@ -35,7 +35,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 
 	sigByPos := make(map[token.Pos]*SignatureData)
 	for _, sig := range graph.Signatures {
-		sigByPos[sig.Pos] = &SignatureData{*sig, false}
+		sigByPos[sig.Pos] = &SignatureData{sig, false}
 	}
 
 	result := Result{}
@@ -53,7 +53,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		return true
 	})
 
-	result.SyncSignatures = findSyncSignatures(sigByPos, graph.CalledByGraph())
+	result.SyncSignatures = findSyncSignatures(sigByPos, graph.ApproxCallGraph)
 	return &result, nil
 }
 
@@ -64,7 +64,7 @@ type SignatureData struct {
 
 // findSyncSignatures finds a list of Signatures for functions which do not call goroutines or call functions which
 // call goroutines.
-func findSyncSignatures(sigs map[token.Pos]*SignatureData, calledByGraph map[callgraph.Signature][]callgraph.Signature) map[callgraph.Signature]struct{} {
+func findSyncSignatures(sigs map[token.Pos]*SignatureData, graph *callgraph.CallGraph) map[callgraph.Signature]struct{} {
 	var toCheck []callgraph.Signature
 	unsafe := make(map[callgraph.Signature]struct{})
 	for _, sig := range sigs {
@@ -74,8 +74,16 @@ func findSyncSignatures(sigs map[token.Pos]*SignatureData, calledByGraph map[cal
 			toCheck = append(toCheck, sig.Signature)
 		}
 	}
-	// any function which calls a function that starts a goroutine is potentially unsafe
-	unsafe = bfsSpreadUnsafe(unsafe, calledByGraph)
+	// any function which calls a function that starts a goroutine is potentially unsafe. To find out which
+	// functions could start a goroutine in the course of their execution, we run a BFS over the called-by
+	// graph starting from all the unsafe nodes.
+	unsafeNodes := make([]callgraph.Signature, 0, len(unsafe))
+	for sig := range unsafe {
+		unsafeNodes = append(unsafeNodes, sig)
+	}
+	graph.CalledByGraphBfs(unsafeNodes, func(sig callgraph.Signature) {
+		unsafe[sig] = struct{}{}
+	})
 	// remove all unsafe signatures from the list of results
 	result := make(map[callgraph.Signature]struct{})
 	for _, sig := range toCheck {
@@ -84,51 +92,6 @@ func findSyncSignatures(sigs map[token.Pos]*SignatureData, calledByGraph map[cal
 		}
 	}
 	return result
-}
-
-// bfsSpreadUnsafe pushes the unsafe functions through the calledByGraph via a single BFS rooted at known unsafe functions.
-func bfsSpreadUnsafe(unsafe map[callgraph.Signature]struct{}, calledByGraph map[callgraph.Signature][]callgraph.Signature) map[callgraph.Signature]struct{} {
-	roots := make([]callgraph.Signature, 0, len(unsafe))
-	for sig := range unsafe {
-		roots = append(roots, sig)
-	}
-	frontier := make([]callgraph.Signature, 0, len(calledByGraph))
-	frontier = append(frontier, roots...)
-	visited := make(map[callgraph.Signature]struct{}, len(calledByGraph))
-	for len(frontier) > 0 {
-		curr := frontier[0]
-		visited[curr] = struct{}{}
-		frontier = frontier[1:]
-		unsafe[curr] = struct{}{} // mark any node reachable from an unsafe node as unsafe
-		for _, child := range calledByGraph[curr] {
-			if _, ok := visited[child]; !ok {
-				frontier = append(frontier, child)
-			}
-		}
-	}
-	return unsafe
-}
-
-// bfsHitsUnsafe determines whether the root node can reach one an unsafe node via some path in the callgraph.
-func bfsHitsUnsafe(root callgraph.Signature, graph map[callgraph.Signature][]callgraph.Signature, unsafe map[callgraph.Signature]struct{}) bool {
-	frontier := make([]callgraph.Signature, 0, len(graph))
-	frontier = append(frontier, root)
-	visited := make(map[callgraph.Signature]struct{}, len(graph))
-	for len(frontier) > 0 {
-		curr := frontier[0]
-		visited[curr] = struct{}{}
-		frontier = frontier[1:]
-		if _, ok := unsafe[curr]; ok {
-			return true
-		}
-		for _, child := range graph[curr] {
-			if _, ok := visited[child]; !ok {
-				frontier = append(frontier, child)
-			}
-		}
-	}
-
-	return false
 }
 
 func outermostFuncDecl(stack []ast.Node) *ast.FuncDecl {

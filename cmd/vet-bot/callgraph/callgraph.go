@@ -20,24 +20,91 @@ var Analyzer = &analysis.Analyzer{
 }
 
 type Result struct {
-	Signatures      []*SignaturePos
+	Signatures      []SignaturePos
 	Calls           []Call
-	ApproxCallGraph map[Signature][]Signature
+	ApproxCallGraph *CallGraph
 }
 
-// CalledByGraph reverses the provided callgraph to create the called-by graph.
-func (r Result) CalledByGraph() map[Signature][]Signature {
-	result := make(map[Signature][]Signature)
-	for outer, callList := range r.ApproxCallGraph {
+// CallGraph represents an approxmiate call-graph, relying on incomplete information found in the function
+// signature. The resulting graph is a super-graph of the actual call-graph. That is, two functions with matching
+// signatures may map to the same node in the resulting call graph, and, when they do, their edges are mapped with
+// them. In other words, when the approximate call-graph and the actual call-graph are viewed as categories, they are
+// related by a forgetful functor which preserves signatures (the author apologizes for this explanation ;).
+type CallGraph struct {
+	signatures    []Signature
+	signatureToId map[Signature]int
+	callGraph     map[int][]int
+	calledByGraph map[int][]int // lazily-constructed
+}
+
+func (cg *CallGraph) lazyInitCalledBy() {
+	if cg.calledByGraph != nil {
+		return
+	}
+	cg.calledByGraph = make(map[int][]int, len(cg.callGraph))
+	for outer, callList := range cg.callGraph {
 		for _, called := range callList {
-			if _, ok := result[called]; ok {
-				result[called] = append(result[called], outer)
+			if _, ok := cg.calledByGraph[called]; ok {
+				if !contains(cg.callGraph[called], outer) {
+					cg.calledByGraph[called] = append(cg.calledByGraph[called], outer)
+				}
 			} else {
-				result[called] = []Signature{outer}
+				cg.calledByGraph[called] = []int{outer}
 			}
 		}
 	}
+}
+
+func contains(A []int, v int) bool {
+	for _, a := range A {
+		if a == v {
+			return true
+		}
+	}
+	return false
+}
+
+func (cg *CallGraph) CalledByRoots() []Signature {
+	cg.lazyInitCalledBy()
+	idSet := make(map[int]struct{})
+	for id := range cg.calledByGraph {
+		idSet[id] = struct{}{}
+	}
+	for _, callers := range cg.calledByGraph {
+		for _, caller := range callers {
+			delete(idSet, caller)
+		}
+	}
+	var result []Signature
+	for id := range idSet {
+		result = append(result, cg.signatures[id])
+	}
 	return result
+}
+
+func (cg *CallGraph) CalledByGraphBfs(roots []Signature, visit func(sig Signature)) {
+	cg.lazyInitCalledBy()
+	rootIDs := make([]int, 0, len(roots))
+	for _, sig := range roots {
+		id, ok := cg.signatureToId[sig]
+		if ok {
+			rootIDs = append(rootIDs, id)
+		} // BFS results remain correct if unknown signatures are not visited
+	}
+	frontier := make([]int, 0, len(cg.calledByGraph))
+	frontier = append(frontier, rootIDs...)
+	visited := make(map[int]struct{}, len(cg.calledByGraph))
+	for len(frontier) > 0 {
+		curr := frontier[0]
+		frontier = frontier[1:]
+		visited[curr] = struct{}{}
+		visit(cg.signatures[curr])
+		for _, child := range cg.calledByGraph[curr] {
+			if _, ok := visited[child]; !ok {
+				frontier = append(frontier, child)
+			}
+		}
+	}
 }
 
 func run(pass *analysis.Pass) (interface{}, error) {
@@ -58,7 +125,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		case *ast.FuncDecl:
 			sig := parseSignature(typed)
 			sigByPos[sig.Pos] = &sig
-			result.Signatures = append(result.Signatures, &sig)
+			result.Signatures = append(result.Signatures, sig)
 		case *ast.CallExpr:
 			call := parseCall(typed, stack)
 			result.Calls = append(result.Calls, call)
@@ -66,7 +133,8 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		return true
 	})
 
-	result.ApproxCallGraph = makeApproxCallGraph(result)
+	cg := makeCallGraph(result)
+	result.ApproxCallGraph = &cg
 	return &result, nil
 }
 
@@ -94,19 +162,29 @@ type SignaturePos struct {
 	Pos             token.Pos
 }
 
-// makeApproxCallGraph constructs an approxmiate call-graph, relying on incomplete information found in the function
-// signature. The resulting graph is a super-graph of the actual call-graph. That is, two functions with matching
-// signatures may map to the same node in the resulting call graph, and, when they do, their edges are mapped with
-// them. In other words, when the approximate call-graph and the actual call-graph are viewed as categories, they are
-// related by a forgetful functor which preserves signatures (the author apologizes for this explanation ;).
-func makeApproxCallGraph(r Result) map[Signature][]Signature {
-	result := make(map[Signature][]Signature)
+func makeCallGraph(r Result) CallGraph {
+	result := CallGraph{
+		signatureToId: make(map[Signature]int),
+		callGraph:     make(map[int][]int),
+	}
+	insertSignature := func(sig Signature) int {
+		id := len(result.signatures)
+		result.signatures = append(result.signatures, sig)
+		result.signatureToId[sig] = id
+		return id
+	}
 	for _, call := range r.Calls {
 		outerSig := call.OuterSignature.Signature
-		if _, ok := result[outerSig]; ok {
-			result[outerSig] = append(result[outerSig], call.Signature)
-		} else {
-			result[outerSig] = []Signature{call.Signature}
+		outerID, ok := result.signatureToId[outerSig]
+		if !ok {
+			outerID = insertSignature(outerSig)
+		}
+		callID, ok := result.signatureToId[call.Signature]
+		if !ok {
+			callID = insertSignature(call.Signature)
+		}
+		if !contains(result.callGraph[outerID], callID) {
+			result.callGraph[outerID] = append(result.callGraph[outerID], callID)
 		}
 	}
 	return result
@@ -115,7 +193,7 @@ func makeApproxCallGraph(r Result) map[Signature][]Signature {
 // parseSignature retrieves a SignaturePos from a FuncDecl.
 func parseSignature(fdec *ast.FuncDecl) SignaturePos {
 	result := SignaturePos{Pos: fdec.Pos()}
-	result.Name = fdec.Name.Name // we ignore _many_ things; receiver type; package, path, etc.
+	result.Name = fdec.Name.Name // we intentionally ignore _many_ things; receiver type; package, path, etc.
 	if fdec.Recv != nil {
 		for _, x := range fdec.Recv.List {
 			if star, ok := x.Type.(*ast.StarExpr); ok {

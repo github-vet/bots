@@ -72,7 +72,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	for _, decl := range graph.Calls {
 		result.SafePtrs[decl.Signature] = nil
 	}
-	signaturesByPos := make(map[token.Pos]*callgraph.SignaturePos)
+	signaturesByPos := make(map[token.Pos]callgraph.SignaturePos)
 	for _, sig := range graph.Signatures {
 		signaturesByPos[sig.Pos] = sig
 	}
@@ -102,9 +102,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	for _, call := range graph.Calls {
 		callsBySignature[call.Signature] = append(callsBySignature[call.Signature], call)
 	}
-	calledByGraph := graph.CalledByGraph()
-	roots := callgraph.Roots(calledByGraph)
-	bfsVisit(roots, calledByGraph, func(sig callgraph.Signature) {
+	graph.ApproxCallGraph.CalledByGraphBfs(graph.ApproxCallGraph.CalledByRoots(), func(sig callgraph.Signature) {
 		safeCallArgs := result.SafePtrs[sig]
 		calls := callsBySignature[sig]
 		for _, call := range calls {
