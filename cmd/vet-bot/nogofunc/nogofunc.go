@@ -11,7 +11,6 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
-// TODO: something has a memory leak -.-
 var Analyzer = &analysis.Analyzer{
 	Name:             "nogofunc",
 	Doc:              "gathers a list of function signatures whose invocations definitely do not start a goroutine",
