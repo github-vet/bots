@@ -25,6 +25,11 @@ type Result struct {
 	SyncSignatures map[callgraph.Signature]struct{}
 }
 
+type SignatureFacts struct {
+	callgraph.SignaturePos
+	StartsGoroutine bool
+}
+
 func run(pass *analysis.Pass) (interface{}, error) {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 	graph := pass.ResultOf[callgraph.Analyzer].(*callgraph.Result)
@@ -33,9 +38,9 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		(*ast.GoStmt)(nil),
 	}
 
-	sigByPos := make(map[token.Pos]*SignatureData)
+	sigByPos := make(map[token.Pos]*SignatureFacts)
 	for _, sig := range graph.Signatures {
-		sigByPos[sig.Pos] = &SignatureData{sig, false}
+		sigByPos[sig.Pos] = &SignatureFacts{sig, false}
 	}
 
 	result := Result{}
@@ -57,14 +62,9 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	return &result, nil
 }
 
-type SignatureData struct {
-	callgraph.SignaturePos
-	StartsGoroutine bool
-}
-
 // findSyncSignatures finds a list of Signatures for functions which do not call goroutines or call functions which
 // call goroutines.
-func findSyncSignatures(sigs map[token.Pos]*SignatureData, graph *callgraph.CallGraph) map[callgraph.Signature]struct{} {
+func findSyncSignatures(sigs map[token.Pos]*SignatureFacts, graph *callgraph.CallGraph) map[callgraph.Signature]struct{} {
 	var toCheck []callgraph.Signature
 	unsafe := make(map[callgraph.Signature]struct{})
 	for _, sig := range sigs {
@@ -81,7 +81,7 @@ func findSyncSignatures(sigs map[token.Pos]*SignatureData, graph *callgraph.Call
 	for sig := range unsafe {
 		unsafeNodes = append(unsafeNodes, sig)
 	}
-	graph.CalledByGraphBfs(unsafeNodes, func(sig callgraph.Signature) {
+	graph.CalledByGraphBFS(unsafeNodes, func(sig callgraph.Signature) {
 		unsafe[sig] = struct{}{}
 	})
 	// remove all unsafe signatures from the list of results

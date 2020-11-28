@@ -1,35 +1,15 @@
 package callgraph
 
-import (
-	"go/ast"
-	"go/token"
-	"reflect"
-
-	"golang.org/x/tools/go/analysis"
-	"golang.org/x/tools/go/analysis/passes/inspect"
-	"golang.org/x/tools/go/ast/inspector"
-)
-
-var Analyzer = &analysis.Analyzer{
-	Name:             "callgraph",
-	Doc:              "computes an approximate callgraph based on function arity, name, and nothing else",
-	Run:              run,
-	RunDespiteErrors: true,
-	Requires:         []*analysis.Analyzer{inspect.Analyzer},
-	ResultType:       reflect.TypeOf((*Result)(nil)),
-}
-
-type Result struct {
-	Signatures      []SignaturePos
-	Calls           []Call
-	ApproxCallGraph *CallGraph
-}
-
 // CallGraph represents an approxmiate call-graph, relying on incomplete information found in the function
-// signature. The resulting graph is a super-graph of the actual call-graph. That is, two functions with matching
-// signatures may map to the same node in the resulting call graph, and, when they do, their edges are mapped with
-// them. In other words, when the approximate call-graph and the actual call-graph are viewed as categories, they are
-// related by a forgetful functor which preserves signatures (the author apologizes for this explanation ;).
+// signature. A call-graph has a node for each function, and edges between two nodes a and b if function a calls
+// function b. The call-graph this package computes is approximate in the sense that two functions with the same
+// name and arity are considered equivalent. The resulting graph is a coarsening of the actual call-graph in the
+// sense that two functions with matching signatures may refer to the same node in the resulting call graph. When
+// this happens, the 'calls' relation described by the edges of the graph is preserved. In more complicated terms,
+// when the approximate call-graph and the actual call-graph are viewed as categories, they are related by a forgetful
+// functor which discards everything other than the function name and arity.
+//
+// The CallGraph also makes it easy to access the called-by graph, which is the callgraph with all edges reversed.
 type CallGraph struct {
 	signatures    []Signature
 	signatureToId map[Signature]int
@@ -37,6 +17,56 @@ type CallGraph struct {
 	calledByGraph map[int][]int // lazily-constructed
 }
 
+// CalledByRoots returns a list of the nodes in the called-by graph which do not have any incoming edges (i.e.
+// the signatures of function which do not call any functions).
+func (cg *CallGraph) CalledByRoots() []Signature {
+	cg.lazyInitCalledBy()
+	idSet := make(map[int]struct{})
+	for id := range cg.calledByGraph {
+		idSet[id] = struct{}{}
+	}
+	for _, callers := range cg.calledByGraph {
+		for _, caller := range callers {
+			delete(idSet, caller)
+		}
+	}
+	var result []Signature
+	for id := range idSet {
+		result = append(result, cg.signatures[id])
+	}
+	return result
+}
+
+// CalledByGraphBFS performs a breadth-first search of the called-by graph, starting from the set of roots provided.
+// The provided visit function is called for every node visited during the search. Each node in the graph is visited
+// at most once.
+func (cg *CallGraph) CalledByGraphBFS(roots []Signature, visit func(sig Signature)) {
+	cg.lazyInitCalledBy()
+	rootIDs := make([]int, 0, len(roots))
+	for _, sig := range roots {
+		id, ok := cg.signatureToId[sig]
+		if ok {
+			rootIDs = append(rootIDs, id)
+		} // BFS results remain correct if nodes not in the graph remain unvisited.
+	}
+	frontier := make([]int, 0, len(cg.calledByGraph))
+	frontier = append(frontier, rootIDs...)
+	visited := make(map[int]struct{}, len(cg.calledByGraph))
+	for len(frontier) > 0 {
+		curr := frontier[0]
+		frontier = frontier[1:]
+		visited[curr] = struct{}{}
+		visit(cg.signatures[curr])
+		for _, child := range cg.calledByGraph[curr] {
+			if _, ok := visited[child]; !ok {
+				frontier = append(frontier, child)
+			}
+		}
+	}
+}
+
+// lazyInitCalledBy initializes the calledByGraph structure if it is nil. Not all applications will require
+// this graph, so it is constructed on-demand.
 func (cg *CallGraph) lazyInitCalledBy() {
 	if cg.calledByGraph != nil {
 		return
@@ -62,249 +92,4 @@ func contains(A []int, v int) bool {
 		}
 	}
 	return false
-}
-
-func (cg *CallGraph) CalledByRoots() []Signature {
-	cg.lazyInitCalledBy()
-	idSet := make(map[int]struct{})
-	for id := range cg.calledByGraph {
-		idSet[id] = struct{}{}
-	}
-	for _, callers := range cg.calledByGraph {
-		for _, caller := range callers {
-			delete(idSet, caller)
-		}
-	}
-	var result []Signature
-	for id := range idSet {
-		result = append(result, cg.signatures[id])
-	}
-	return result
-}
-
-func (cg *CallGraph) CalledByGraphBfs(roots []Signature, visit func(sig Signature)) {
-	cg.lazyInitCalledBy()
-	rootIDs := make([]int, 0, len(roots))
-	for _, sig := range roots {
-		id, ok := cg.signatureToId[sig]
-		if ok {
-			rootIDs = append(rootIDs, id)
-		} // BFS results remain correct if unknown signatures are not visited
-	}
-	frontier := make([]int, 0, len(cg.calledByGraph))
-	frontier = append(frontier, rootIDs...)
-	visited := make(map[int]struct{}, len(cg.calledByGraph))
-	for len(frontier) > 0 {
-		curr := frontier[0]
-		frontier = frontier[1:]
-		visited[curr] = struct{}{}
-		visit(cg.signatures[curr])
-		for _, child := range cg.calledByGraph[curr] {
-			if _, ok := visited[child]; !ok {
-				frontier = append(frontier, child)
-			}
-		}
-	}
-}
-
-func run(pass *analysis.Pass) (interface{}, error) {
-	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
-
-	nodeFilter := []ast.Node{
-		(*ast.FuncDecl)(nil),
-		(*ast.CallExpr)(nil),
-	}
-
-	sigByPos := make(map[token.Pos]*SignaturePos)
-	result := Result{}
-	inspect.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
-		if !push { // this is called twice, once before and after the current node is added to the stack
-			return true
-		}
-		switch typed := n.(type) {
-		case *ast.FuncDecl:
-			sig := parseSignature(typed)
-			sigByPos[sig.Pos] = &sig
-			result.Signatures = append(result.Signatures, sig)
-		case *ast.CallExpr:
-			call := parseCall(typed, stack)
-			result.Calls = append(result.Calls, call)
-		}
-		return true
-	})
-
-	cg := makeCallGraph(result)
-	result.ApproxCallGraph = &cg
-	return &result, nil
-}
-
-// Call captures the signature of function calls.
-type Call struct {
-	Signature
-	PtrReceiverFunc bool
-	OuterSignature  SignaturePos
-	Pos             token.Pos
-	ArgPos          []token.Pos
-}
-
-// Signature is an approximation of the information needed to make a function call. It captures only name
-// and arity.
-type Signature struct {
-	Name  string
-	Arity int
-}
-
-// SignaturePos is a signature along with the position of its declaration.
-type SignaturePos struct {
-	Signature
-	PtrReceiverFunc bool
-	ArgPointers     []bool
-	Pos             token.Pos
-}
-
-func makeCallGraph(r Result) CallGraph {
-	result := CallGraph{
-		signatureToId: make(map[Signature]int),
-		callGraph:     make(map[int][]int),
-	}
-	insertSignature := func(sig Signature) int {
-		id := len(result.signatures)
-		result.signatures = append(result.signatures, sig)
-		result.signatureToId[sig] = id
-		return id
-	}
-	for _, call := range r.Calls {
-		outerSig := call.OuterSignature.Signature
-		outerID, ok := result.signatureToId[outerSig]
-		if !ok {
-			outerID = insertSignature(outerSig)
-		}
-		callID, ok := result.signatureToId[call.Signature]
-		if !ok {
-			callID = insertSignature(call.Signature)
-		}
-		if !contains(result.callGraph[outerID], callID) {
-			result.callGraph[outerID] = append(result.callGraph[outerID], callID)
-		}
-	}
-	return result
-}
-
-// parseSignature retrieves a SignaturePos from a FuncDecl.
-func parseSignature(fdec *ast.FuncDecl) SignaturePos {
-	result := SignaturePos{Pos: fdec.Pos()}
-	result.Name = fdec.Name.Name // we intentionally ignore _many_ things; receiver type; package, path, etc.
-	if fdec.Recv != nil {
-		for _, x := range fdec.Recv.List {
-			if star, ok := x.Type.(*ast.StarExpr); ok {
-				if _, ok := star.X.(*ast.Ident); ok {
-					result.PtrReceiverFunc = true
-				}
-			}
-		}
-	}
-	if fdec.Type.Params != nil {
-		for _, x := range fdec.Type.Params.List {
-			result.Arity += len(x.Names)
-			if _, ok := x.Type.(*ast.StarExpr); ok {
-				for i := 0; i < len(x.Names); i++ {
-					result.ArgPointers = append(result.ArgPointers, true)
-				}
-			} else {
-				for i := 0; i < len(x.Names); i++ {
-					result.ArgPointers = append(result.ArgPointers, false)
-				}
-			}
-		}
-
-	}
-	return result
-}
-
-// proveRootIsPointerReceiver attempts to prove that the root of a SelectorExpr has pointer type. As written, it does
-// not have enough information to make that determination with certainty.
-func proveRootIsPointerReceiver(selExpr *ast.SelectorExpr) bool {
-	// TODO: this certainly misses some pointers; tracking the reference type of local variables could improve
-	// this significantly, and seems possible since we only need to track assignments made in local scope.
-	switch typed := selExpr.X.(type) {
-	case *ast.Ident:
-		if typed.Obj != nil && typed.Obj.Decl != nil {
-			if field, ok := typed.Obj.Decl.(*ast.Field); ok {
-				if _, ok := field.Type.(*ast.StarExpr); ok {
-					return true
-				}
-			}
-		}
-	case *ast.SelectorExpr:
-		return proveRootIsPointerReceiver(typed)
-	}
-	return false
-}
-
-func SignatureFromCallExpr(call *ast.CallExpr) Signature {
-	result := Signature{
-		Arity: len(call.Args),
-	}
-	switch typed := call.Fun.(type) {
-	case *ast.Ident:
-		result.Name = typed.Name
-	case *ast.SelectorExpr:
-		result.Name = typed.Sel.Name
-	}
-	return result
-}
-
-// parseCall retrieves relevant information about a function call.
-func parseCall(call *ast.CallExpr, stack []ast.Node) Call {
-	result := Call{Pos: call.Pos()}
-	outerFunc := outermostFuncDecl(stack)
-	if outerFunc != nil {
-		result.OuterSignature = parseSignature(outerFunc)
-	}
-	result.Arity = len(call.Args)
-	switch typed := call.Fun.(type) {
-	case *ast.Ident:
-		result.Name = typed.Name
-		result.PtrReceiverFunc = false
-	case *ast.SelectorExpr:
-		result.Name = typed.Sel.Name
-		result.PtrReceiverFunc = proveRootIsPointerReceiver(typed)
-	}
-	// obtain the source positions of argument decalarations
-	for _, arg := range call.Args {
-		id, ok := arg.(*ast.Ident)
-		if !ok || id.Obj == nil {
-			result.ArgPos = append(result.ArgPos, token.NoPos)
-			continue
-		}
-		result.ArgPos = append(result.ArgPos, id.Obj.Pos())
-	}
-	return result
-}
-
-func outermostFuncDecl(stack []ast.Node) *ast.FuncDecl {
-	for i := 0; i < len(stack); i++ {
-		if decl, ok := stack[i].(*ast.FuncDecl); ok {
-			return decl
-		}
-	}
-	return nil
-}
-
-// Roots returns the list of nodes which have no incoming edges.
-func Roots(graph map[Signature][]Signature) []Signature {
-	sigSet := make(map[Signature]struct{})
-	for sig := range graph {
-		sigSet[sig] = struct{}{}
-	}
-	for _, callers := range graph {
-		for _, caller := range callers {
-			delete(sigSet, caller)
-		}
-	}
-	var result []Signature
-	for sig := range sigSet {
-		result = append(result, sig)
-	}
-	return result
 }

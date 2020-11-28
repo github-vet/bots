@@ -143,6 +143,8 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 				if expr == child && child == n {
 					return id, rangeLoop, false
 				}
+				// TODO: a common idiom seems to be to assign to an outer variable and immediately break.
+				//       we can ignore these examples by examining the remainder of the block for a break statement.
 			}
 		}
 		return nil, nil, true

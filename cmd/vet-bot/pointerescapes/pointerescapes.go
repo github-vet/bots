@@ -102,11 +102,11 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	for _, call := range graph.Calls {
 		callsBySignature[call.Signature] = append(callsBySignature[call.Signature], call)
 	}
-	graph.ApproxCallGraph.CalledByGraphBfs(graph.ApproxCallGraph.CalledByRoots(), func(sig callgraph.Signature) {
+	graph.ApproxCallGraph.CalledByGraphBFS(graph.ApproxCallGraph.CalledByRoots(), func(sig callgraph.Signature) {
 		safeCallArgs := result.SafePtrs[sig]
 		calls := callsBySignature[sig]
 		for _, call := range calls {
-			for idx, argPos := range call.ArgPos {
+			for idx, argPos := range call.ArgDeclPos {
 				if contains(safeCallArgs, idx) { // skip if argument is known to be safe
 					continue
 				}

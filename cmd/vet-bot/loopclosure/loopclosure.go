@@ -16,7 +16,7 @@ import (
 const Doc = `This is an augmented version of the loopanalyzer found in the
 standard library. It handles nested loops and avoids relying on type-checking
 info -- that means a few more false positives, but also means not having to
-run the type-checker, which is a huge performance win.`
+run the type-checker, which is a net-win.`
 
 var Analyzer = &analysis.Analyzer{
 	Name:     "loopclosure-augmented",
