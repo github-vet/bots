@@ -212,3 +212,21 @@ func outermostFuncDecl(stack []ast.Node) *ast.FuncDecl {
 	}
 	return nil
 }
+
+// Roots returns the list of nodes which have no incoming edges.
+func Roots(graph map[Signature][]Signature) []Signature {
+	sigSet := make(map[Signature]struct{})
+	for sig := range graph {
+		sigSet[sig] = struct{}{}
+	}
+	for _, callers := range graph {
+		for _, caller := range callers {
+			delete(sigSet, caller)
+		}
+	}
+	var result []Signature
+	for sig := range sigSet {
+		result = append(result, sig)
+	}
+	return result
+}

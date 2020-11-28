@@ -174,7 +174,7 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 // Get variable identity
 func getIdentity(expr ast.Expr) *ast.Ident {
 	switch typed := expr.(type) {
-	case *ast.SelectorExpr:
+	case *ast.SelectorExpr: // TODO: this should not trigger on selector expressions for our use-case
 		// Get parent identity; i.e. `a` of the `a.b`.
 		return getIdentity(typed.X)
 

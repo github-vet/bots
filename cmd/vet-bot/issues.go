@@ -93,7 +93,7 @@ func (ir *IssueReporter) ReportVetResult(result VetResult) {
 	ir.md5s[md5Sum] = struct{}{}
 
 	ir.bot.wg.Add(1)
-	go func() {
+	go func(result VetResult) {
 		issueRequest := CreateIssueRequest(result)
 		iss, _, err := ir.bot.client.CreateIssue(findingsOwner, findingsRepo, &issueRequest)
 		if err != nil {
@@ -103,7 +103,7 @@ func (ir *IssueReporter) ReportVetResult(result VetResult) {
 		ir.writeIssueToFile(result, iss)
 		log.Printf("opened new issue at %s", iss.GetHTMLURL())
 		ir.bot.wg.Done()
-	}()
+	}(result)
 }
 
 func (ir *IssueReporter) writeIssueToFile(result VetResult, iss *github.Issue) error {

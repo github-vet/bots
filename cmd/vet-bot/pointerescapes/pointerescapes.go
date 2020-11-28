@@ -103,7 +103,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		callsBySignature[call.Signature] = append(callsBySignature[call.Signature], call)
 	}
 	calledByGraph := graph.CalledByGraph()
-	roots := roots(calledByGraph)
+	roots := callgraph.Roots(calledByGraph)
 	bfsVisit(roots, calledByGraph, func(sig callgraph.Signature) {
 		safeCallArgs := result.SafePtrs[sig]
 		calls := callsBySignature[sig]
@@ -125,26 +125,10 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	return &result, nil
 }
 
-func roots(graph map[callgraph.Signature][]callgraph.Signature) []callgraph.Signature {
-	sigSet := make(map[callgraph.Signature]struct{})
-	for sig := range graph {
-		sigSet[sig] = struct{}{}
-	}
-	for _, callers := range graph {
-		for _, caller := range callers {
-			delete(sigSet, caller)
-		}
-	}
-	var result []callgraph.Signature
-	for sig := range sigSet {
-		result = append(result, sig)
-	}
-	return result
-}
-
 func bfsVisit(roots []callgraph.Signature, graph map[callgraph.Signature][]callgraph.Signature, visit func(callgraph.Signature)) {
-	frontier := roots
-	visited := make(map[callgraph.Signature]struct{})
+	frontier := make([]callgraph.Signature, 0, len(graph))
+	frontier = append(frontier, roots...)
+	visited := make(map[callgraph.Signature]struct{}, len(graph))
 	for len(frontier) > 0 {
 		curr := frontier[0]
 		visited[curr] = struct{}{}

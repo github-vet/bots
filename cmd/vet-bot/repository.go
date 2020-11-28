@@ -56,54 +56,59 @@ func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) error {
 		log.Printf("failed to get tar link for %s/%s: %v", repo.Owner, repo.Repo, err)
 		return err
 	}
-	resp, err := http.Get(url.String())
-	if err != nil {
-		log.Printf("failed to download tar contents: %v", err)
-		return err
-	}
-	defer resp.Body.Close()
-	unzipped, err := gzip.NewReader(resp.Body)
-	if err != nil {
-		log.Printf("unable to initialize unzip stream: %v", err)
-		return err
-	}
-	reader := tar.NewReader(unzipped)
 	fset := token.NewFileSet()
-	log.Printf("reading contents of %s/%s", repo.Owner, repo.Repo)
 	contents := make(map[string][]byte)
 	var files []*ast.File
-	for {
-		header, err := reader.Next()
-		if err == io.EOF {
-			break
-		}
+	if err := func() error {
+		resp, err := http.Get(url.String())
 		if err != nil {
-			log.Printf("failed to read tar entry")
+			log.Printf("failed to download tar contents: %v", err)
 			return err
 		}
-		name := header.Name
-		split := strings.SplitN(name, "/", 2)
-		if len(split) < 2 {
-			continue // we only care about files in a subdirectory (due to how GitHub returns archives).
+		defer resp.Body.Close()
+		unzipped, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			log.Printf("unable to initialize unzip stream: %v", err)
+			return err
 		}
-		realName := split[1]
-		switch header.Typeflag {
-		case tar.TypeReg:
-			if IgnoreFile(realName) {
-				continue
+		reader := tar.NewReader(unzipped)
+		log.Printf("reading contents of %s/%s", repo.Owner, repo.Repo)
+		for {
+			header, err := reader.Next()
+			if err == io.EOF {
+				break
 			}
-			bytes, err := ioutil.ReadAll(reader)
 			if err != nil {
-				log.Printf("error reading contents of %s: %v", realName, err)
+				log.Printf("failed to read tar entry")
+				return err
 			}
-			file, err := parser.ParseFile(fset, realName, string(bytes), parser.AllErrors)
-			if err != nil {
-				log.Printf("failed to parse file %s: %v", realName, err)
-				continue
+			name := header.Name
+			split := strings.SplitN(name, "/", 2)
+			if len(split) < 2 {
+				continue // we only care about files in a subdirectory (due to how GitHub returns archives).
 			}
-			files = append(files, file)
-			contents[fset.File(file.Pos()).Name()] = bytes
+			realName := split[1]
+			switch header.Typeflag {
+			case tar.TypeReg:
+				if IgnoreFile(realName) {
+					continue
+				}
+				bytes, err := ioutil.ReadAll(reader)
+				if err != nil {
+					log.Printf("error reading contents of %s: %v", realName, err)
+				}
+				file, err := parser.ParseFile(fset, realName, string(bytes), parser.AllErrors)
+				if err != nil {
+					log.Printf("failed to parse file %s: %v", realName, err)
+					continue
+				}
+				files = append(files, file)
+				contents[fset.File(file.Pos()).Name()] = bytes
+			}
 		}
+		return nil
+	}(); err != nil {
+		return err
 	}
 	VetRepo(contents, files, fset, ReportFinding(ir, fset, rootCommitID, repo))
 	return nil

@@ -1,6 +1,7 @@
 package nogofunc_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/kalexmills/github-vet/cmd/vet-bot/nogofunc"
@@ -9,5 +10,6 @@ import (
 
 func Test(t *testing.T) {
 	testdata := analysistest.TestData()
-	analysistest.Run(t, testdata, nogofunc.Analyzer, "devtest")
+	result := analysistest.Run(t, testdata, nogofunc.Analyzer, "devtest")
+	fmt.Printf("%v\n", result[0].Result)
 }
