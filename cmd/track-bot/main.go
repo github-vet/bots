@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"log"
 	"os"
 	"os/signal"
@@ -16,18 +17,11 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// PollFrequency is the frequency this bot is run.
-var PollFrequency time.Duration = 15 * time.Minute
-
 // MinExpertsNeededToClose controls the number of experts who must react before the issue is marked as closed.
 const MinExpertsNeededToClose = 2
 
 // ValidReactions lists the set of reactions which 'count' as input for the purpose of analysis.
 var ValidReactions []string = []string{"+1", "-1", "rocket"}
-
-// TODO: maybe don't hardcode these? We don't have any reason to do otherwise right now, though.
-const findingsOwner = "github-vet"
-const findingsRepo = "rangeclosure-findings"
 
 // CloseTestIssues is a flag used to close any issues found which are in a test file.
 var CloseTestIssues bool = true
@@ -47,6 +41,7 @@ var CloseTestIssues bool = true
 //
 // trackbot also creates a log file named 'MM-DD-YYYY.log', using the system date.
 func main() {
+	opts := parseOpts()
 	logFilename := time.Now().Format("01-02-2006") + ".log"
 	logFile, err := os.OpenFile(logFilename, os.O_APPEND|os.O_CREATE, 0666)
 	defer logFile.Close()
@@ -55,18 +50,14 @@ func main() {
 	}
 	log.SetOutput(logFile)
 
-	ghToken, ok := os.LookupEnv("GITHUB_TOKEN")
-	if !ok {
-		log.Fatalln("could not find GITHUB_TOKEN environment variable")
-	}
-	bot, err := NewTrackBot(ghToken, "issue_tracking.csv", "experts.csv", "gophers.csv")
+	bot, err := NewTrackBot(opts)
 	if err != nil {
 		log.Fatalf("error creating trackbot: %v", err)
 	}
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
-	ticker := time.NewTicker(PollFrequency)
+	ticker := time.NewTicker(opts.PollFrequency)
 	for {
 		select {
 		case <-ticker.C:
@@ -78,6 +69,59 @@ func main() {
 			bot.wg.Wait()
 			return
 		}
+	}
+}
+
+type opts struct {
+	GithubToken   string
+	TrackingFile  string
+	ExpertsFile   string
+	GophersFile   string
+	Owner         string
+	Repo          string
+	PollFrequency time.Duration
+}
+
+func parseOpts() opts {
+	result := defaultOpts()
+	var ok bool
+	result.GithubToken, ok = os.LookupEnv("GITHUB_TOKEN")
+	if !ok {
+		log.Fatalln("could not find GITHUB_TOKEN environment variable")
+	}
+	flag.StringVar(&result.ExpertsFile, "experts", result.ExpertsFile, "path to experts CSV file")
+	flag.StringVar(&result.TrackingFile, "tracking", result.TrackingFile, "path to issue tracking CSV file")
+	flag.StringVar(&result.GophersFile, "gophers", result.GophersFile, "path to gophers CSV file")
+	ownerStr := flag.String("repo", result.Repo, "owner/repository of GitHub repo where issues should be tracked")
+	duration := flag.String("poll", "15m", "polling frequency")
+	flag.Parse()
+
+	repoToks := strings.Split(*ownerStr, "/")
+	if len(repoToks) != 2 {
+		log.Fatalf("could not parse repo flag '%s' which must be in owner/repository format", *ownerStr)
+	}
+	result.Owner = repoToks[0]
+	result.Repo = repoToks[1]
+
+	var err error
+	result.PollFrequency, err = time.ParseDuration(*duration)
+	if err != nil {
+		log.Fatalf("could not parse poll frequency '%s' as a valid duration", *duration)
+	}
+	if result.PollFrequency < 0 {
+		log.Fatalln("poll frequency must be a positive duration")
+	}
+	return result
+}
+
+func defaultOpts() opts {
+	return opts{
+		TrackingFile:  "issue_tracking.csv",
+		ExpertsFile:   "experts.csv",
+		GophersFile:   "gophers.csv",
+		Owner:         "github-vet",
+		Repo:          "rangeclosure-findings",
+		PollFrequency: 15 * time.Minute,
 	}
 }
 
@@ -95,14 +139,14 @@ func ProcessAllIssues(bot *TrackBot) {
 	}
 	var opts github.IssueListByRepoOptions
 	opts.PerPage = 100
-	issuePage, resp, err := bot.client.ListIssuesByRepo(findingsOwner, findingsRepo, &opts)
+	issuePage, resp, err := bot.client.ListIssuesByRepo(bot.owner, bot.repo, &opts)
 	for {
 		if err != nil {
 			log.Printf("could not grab issues: %v", err) // TODO: handle rate-limiting
 		}
 		ProcessIssuePage(bot, issuePage)
 		opts.Page = resp.NextPage
-		issuePage, resp, err = bot.client.ListIssuesByRepo(findingsOwner, findingsRepo, &opts)
+		issuePage, resp, err = bot.client.ListIssuesByRepo(bot.owner, bot.repo, &opts)
 		if resp.FirstPage == 0 { // no idea why this finds everything, but it does so consistently
 			break
 		}
@@ -160,7 +204,7 @@ func MaybeCloseAndLabelTestIssue(bot *TrackBot, issue github.Issue) {
 	req.Labels = &labels
 	req.State = &state
 	bot.DoAsync(func() {
-		_, _, err := bot.client.EditIssue(findingsOwner, findingsRepo, issue.GetNumber(), &req)
+		_, _, err := bot.client.EditIssue(bot.owner, bot.repo, issue.GetNumber(), &req)
 		if err != nil {
 			log.Printf("could not mark test issue as closed: %v", err)
 		}
@@ -171,7 +215,7 @@ func MaybeCloseAndLabelTestIssue(bot *TrackBot, issue github.Issue) {
 func GetAllReactions(bot *TrackBot, issueNum int) []*github.Reaction {
 	var listOpts github.ListOptions
 	listOpts.PerPage = 100
-	reactions, resp, err := bot.client.ListIssueReactions(findingsOwner, findingsRepo, issueNum, &listOpts)
+	reactions, resp, err := bot.client.ListIssueReactions(bot.owner, bot.repo, issueNum, &listOpts)
 	var allReactions []*github.Reaction
 	for {
 		if err != nil {
@@ -180,7 +224,7 @@ func GetAllReactions(bot *TrackBot, issueNum int) []*github.Reaction {
 		}
 		allReactions = append(allReactions, reactions...)
 		listOpts.Page = resp.NextPage
-		reactions, resp, err = bot.client.ListIssueReactions(findingsOwner, findingsRepo, issueNum, &listOpts)
+		reactions, resp, err = bot.client.ListIssueReactions(bot.owner, bot.repo, issueNum, &listOpts)
 		if resp.FirstPage == 0 {
 			break
 		}
@@ -305,7 +349,7 @@ func MaybeCloseIssue(bot *TrackBot, record *Issue, expertCount int) {
 	req := github.IssueRequest{
 		State: &state,
 	}
-	_, _, err := bot.client.EditIssue(findingsOwner, findingsRepo, record.Number, &req)
+	_, _, err := bot.client.EditIssue(bot.owner, bot.repo, record.Number, &req)
 	if err != nil {
 		log.Printf("could not close issue %d after %d experts agreed", record.Number, expertCount)
 	}
@@ -326,7 +370,7 @@ func AddLabel(bot *TrackBot, issue *github.Issue, label string) {
 	if HasLabel(issue, label) {
 		return // avoid API call
 	}
-	_, _, err := bot.client.AddLabelsToIssue(findingsOwner, findingsRepo, issue.GetNumber(), []string{label})
+	_, _, err := bot.client.AddLabelsToIssue(bot.owner, bot.repo, issue.GetNumber(), []string{label})
 	if err != nil {
 		log.Printf("could not label issue %d with label %s: %v", issue.GetNumber(), label, err)
 	}
@@ -337,7 +381,7 @@ func RemoveLabel(bot *TrackBot, issue *github.Issue, label string) {
 	if !HasLabel(issue, label) {
 		return // avoid API call
 	}
-	_, err := bot.client.RemoveLabelForIssue(findingsOwner, findingsRepo, issue.GetNumber(), label)
+	_, err := bot.client.RemoveLabelForIssue(bot.owner, bot.repo, issue.GetNumber(), label)
 	if err != nil {
 		log.Printf("could not remove label %s from issue %d: %v", label, issue.GetNumber(), err)
 	}
@@ -349,7 +393,7 @@ func SetExpertLabel(bot *TrackBot, issue *github.Issue, assessment string) {
 	if !changed {
 		return // avoid extra API calls
 	}
-	_, _, err := bot.client.ReplaceLabelsForIssue(findingsOwner, findingsRepo, issue.GetNumber(), newLabels)
+	_, _, err := bot.client.ReplaceLabelsForIssue(bot.owner, bot.repo, issue.GetNumber(), newLabels)
 	if err != nil {
 		log.Printf("could not label issue %d with expert assessment %s", issue.GetNumber(), assessment)
 	}
@@ -361,7 +405,7 @@ func SetCommunityLabel(bot *TrackBot, issue *github.Issue, assessment string) {
 	if !changed {
 		return // avoid extra API calls
 	}
-	_, _, err := bot.client.ReplaceLabelsForIssue(findingsOwner, findingsRepo, issue.GetNumber(), newLabels)
+	_, _, err := bot.client.ReplaceLabelsForIssue(bot.owner, bot.repo, issue.GetNumber(), newLabels)
 	if err != nil {
 		log.Printf("could not label issue %d with community assessment %s", issue.GetNumber(), assessment)
 	}
@@ -449,7 +493,7 @@ func ThrottleExperts(bot *TrackBot, record *Issue, expertsToThrottle []string, e
 	var comment github.IssueComment
 	body := b.String()
 	comment.Body = &body
-	_, _, err = bot.client.CreateIssueComment(findingsOwner, findingsRepo, record.Number, &comment)
+	_, _, err = bot.client.CreateIssueComment(bot.owner, bot.repo, record.Number, &comment)
 	if err != nil {
 		log.Printf("could not post issue disagreement comment: %v", err)
 	}
@@ -460,6 +504,8 @@ type TrackBot struct {
 	wg             sync.WaitGroup
 	issueFilePath  string
 	gopherFilePath string
+	owner          string
+	repo           string
 	gophers        map[string]*Gopher
 	issues         map[int]*Issue
 	experts        map[string]*Expert
@@ -473,8 +519,8 @@ func (b *TrackBot) DoAsync(f func()) {
 	}(f)
 }
 
-func NewTrackBot(token string, issueFilePath, expertsFilePath string, gopherFilePath string) (TrackBot, error) {
-	experts, err := ReadExpertsFile(expertsFilePath)
+func NewTrackBot(opts opts) (TrackBot, error) {
+	experts, err := ReadExpertsFile(opts.ExpertsFile)
 	if err != nil {
 		log.Fatalf("cannot read experts file: %v", err)
 		return TrackBot{}, err
@@ -484,7 +530,7 @@ func NewTrackBot(token string, issueFilePath, expertsFilePath string, gopherFile
 	}
 	ctx := context.Background()
 	ts := oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: string(token)},
+		&oauth2.Token{AccessToken: string(opts.GithubToken)},
 	)
 	tc := oauth2.NewClient(ctx, ts)
 	client := github.NewClient(tc)
@@ -495,8 +541,10 @@ func NewTrackBot(token string, issueFilePath, expertsFilePath string, gopherFile
 	}
 	return TrackBot{
 		client:         &limited,
-		issueFilePath:  issueFilePath,
-		gopherFilePath: gopherFilePath,
+		issueFilePath:  opts.TrackingFile,
+		gopherFilePath: opts.GophersFile,
 		experts:        experts,
+		owner:          opts.Owner,
+		repo:           opts.Repo,
 	}, nil
 }
