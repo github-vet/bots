@@ -193,6 +193,9 @@ func Labels(result VetResult) []string {
 	if strings.HasSuffix(result.FilePath, "_test.go") {
 		labels = append(labels, "test")
 	}
+	if strings.HasPrefix(result.FilePath, "vendor/") {
+		labels = append(labels, "vendored")
+	}
 	return labels
 }
 

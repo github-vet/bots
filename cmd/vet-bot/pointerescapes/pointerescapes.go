@@ -62,10 +62,6 @@ func run(pass *analysis.Pass) (interface{}, error) {
 
 	safeArgs := safeArgMap(make(map[token.Pos]map[token.Pos]int))
 
-	// since lastFuncDecl is effectively global, the inspection here will attempt to remove arguments
-	// that were never added to safeArgs in case of top-level CompositeLit or AssignStmts, without
-	// affecting the result.
-	var lastFuncDecl token.Pos
 	inspect.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
 		if !push {
 			return true
@@ -74,16 +70,17 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		case *ast.FuncDecl:
 			// all pointer args are safe until proven otherwise.
 			safeArgs[n.Pos()] = parsePointerArgs(typed)
-			lastFuncDecl = typed.Pos()
 		case *ast.AssignStmt:
 			// a pointer argument used on the RHS of an assign statement is marked unsafe.
-			if _, ok := safeArgs[lastFuncDecl]; ok {
-				safeArgs.markUnsafe(lastFuncDecl, typed.Rhs)
+			outPos := outermostCallPos(stack)
+			if _, ok := safeArgs[outPos]; ok {
+				safeArgs.markUnsafe(outPos, typed.Rhs)
 			}
 		case *ast.CompositeLit:
 			// a pointer argument used inside a composite literal is marked unsafe.
-			if _, ok := safeArgs[lastFuncDecl]; ok {
-				safeArgs.markUnsafe(lastFuncDecl, typed.Elts)
+			outPos := outermostCallPos(stack)
+			if _, ok := safeArgs[outPos]; ok {
+				safeArgs.markUnsafe(outPos, typed.Elts)
 			}
 		}
 		return true
@@ -92,9 +89,6 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	// construct an initial set of safe pointer arguments.
 	result := Result{
 		SafePtrs: make(map[callgraph.Signature][]int),
-	}
-	for _, decl := range graph.Calls {
-		result.SafePtrs[decl.Signature] = nil
 	}
 	signaturesByPos := make(map[token.Pos]callgraph.SignaturePos)
 	for _, sig := range graph.Signatures {
@@ -116,6 +110,12 @@ func run(pass *analysis.Pass) (interface{}, error) {
 			}
 		}
 	}
+	// add signatures for any calls to third-party packages none of their pointers are considered safe.
+	for _, decl := range graph.Calls {
+		if _, ok := result.SafePtrs[decl.Signature]; !ok {
+			result.SafePtrs[decl.Signature] = nil
+		}
+	}
 	// Threads the notion of an 'unsafe pointer argument' through the call-graph, by performing a breadth-first search
 	// through the called-by graph, and marking unsafe caller arguments as we visit each call-site.
 	callsBySignature := make(map[callgraph.Signature][]callgraph.Call)
@@ -128,7 +128,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		calls := callsBySignature[callSig]
 		for _, call := range calls {
 			for idx, argPos := range call.ArgDeclPos {
-				if contains(safeArgIndexes, idx) {
+				if argPos == token.NoPos || contains(safeArgIndexes, idx) {
 					continue
 				}
 				// argument passed in this call is possibly unsafe, so mark the argument from the caller unsafe as well
@@ -141,6 +141,15 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		}
 	})
 	return &result, nil
+}
+
+func outermostCallPos(stack []ast.Node) token.Pos {
+	for i := len(stack) - 1; i >= 0; i-- {
+		if fdec, ok := stack[i].(*ast.FuncDecl); ok {
+			return fdec.Pos()
+		}
+	}
+	return token.NoPos
 }
 
 func parsePointerArgs(n *ast.FuncDecl) map[token.Pos]int {
