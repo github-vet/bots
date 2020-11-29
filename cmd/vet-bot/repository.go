@@ -13,12 +13,12 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/github-vet/bots/cmd/vet-bot/callgraph"
+	"github.com/github-vet/bots/cmd/vet-bot/loopclosure"
+	"github.com/github-vet/bots/cmd/vet-bot/looppointer"
+	"github.com/github-vet/bots/cmd/vet-bot/nogofunc"
+	"github.com/github-vet/bots/cmd/vet-bot/pointerescapes"
 	"github.com/google/go-github/v32/github"
-	"github.com/kalexmills/github-vet/cmd/vet-bot/callgraph"
-	"github.com/kalexmills/github-vet/cmd/vet-bot/loopclosure"
-	"github.com/kalexmills/github-vet/cmd/vet-bot/looppointer"
-	"github.com/kalexmills/github-vet/cmd/vet-bot/nogofunc"
-	"github.com/kalexmills/github-vet/cmd/vet-bot/pointerescapes"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 )

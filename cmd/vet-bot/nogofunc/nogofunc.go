@@ -5,7 +5,7 @@ import (
 	"go/token"
 	"reflect"
 
-	"github.com/kalexmills/github-vet/cmd/vet-bot/callgraph"
+	"github.com/github-vet/bots/cmd/vet-bot/callgraph"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"

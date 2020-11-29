@@ -1,9 +1,9 @@
-module github.com/kalexmills/github-vet
+module github.com/github-vet/bots
 
 go 1.15
 
 require (
-	github.com/google/go-github v17.0.0+incompatible // indirect
+	github.com/google/go-github v17.0.0+incompatible
 	github.com/google/go-github/v32 v32.1.0
 	github.com/palantir/go-baseapp v0.2.1 // indirect
 	github.com/palantir/go-githubapp v0.5.1 // indirect

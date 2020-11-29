@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/kalexmills/github-vet/cmd/vet-bot/nogofunc"
+	"github.com/github-vet/bots/cmd/vet-bot/nogofunc"
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 

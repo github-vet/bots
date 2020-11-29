@@ -5,9 +5,9 @@ import (
 	"go/ast"
 	"go/token"
 
-	"github.com/kalexmills/github-vet/cmd/vet-bot/callgraph"
-	"github.com/kalexmills/github-vet/cmd/vet-bot/nogofunc"
-	"github.com/kalexmills/github-vet/cmd/vet-bot/pointerescapes"
+	"github.com/github-vet/bots/cmd/vet-bot/callgraph"
+	"github.com/github-vet/bots/cmd/vet-bot/nogofunc"
+	"github.com/github-vet/bots/cmd/vet-bot/pointerescapes"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
