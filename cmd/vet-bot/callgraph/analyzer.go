@@ -63,7 +63,6 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		(*ast.CallExpr)(nil),
 	}
 
-	sigByPos := make(map[token.Pos]*SignaturePos)
 	result := Result{}
 	inspect.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
 		if !push {
@@ -72,7 +71,6 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		switch typed := n.(type) {
 		case *ast.FuncDecl:
 			sig := parseSignature(typed)
-			sigByPos[sig.Pos] = &sig
 			result.Signatures = append(result.Signatures, sig)
 		case *ast.CallExpr:
 			call := parseCall(typed, stack)

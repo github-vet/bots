@@ -167,13 +167,16 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 
 	// If the identity is used in an AssignStmt, it must be on the right-hand side of a '=' token by itself
 	if assignStmt != nil {
+		// if the assignment is immediately followed by return or break, no harm can be done by the assignment
+		// as the range-loop variable will never be updated again.
+		if followedByBreaklike(stack) {
+			return nil, nil, ReasonNone
+		}
 		if assignStmt.Tok != token.DEFINE {
 			for _, expr := range assignStmt.Rhs {
 				if expr == child && child == n {
 					return id, rangeLoop, ReasonPointerReassigned
 				}
-				// TODO: a common idiom seems to be to assign to an outer variable and immediately break.
-				//       we can ignore these examples by examining the remainder of the block for a break statement.
 			}
 		}
 		return nil, nil, ReasonNone
@@ -200,6 +203,43 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 		}
 	}
 	return id, rangeLoop, ReasonCallMayWritePtr
+}
+
+// followedByBreaklike returns true if the current statement is immediately followed by
+// 'return' or 'break'.
+func followedByBreaklike(stack []ast.Node) bool {
+	stmt := innermostStmt(stack)
+	block := innermostBlock(stack)
+	for idx, s := range block.List {
+		if s != stmt || len(block.List) <= idx+1 {
+			continue
+		}
+		next := block.List[idx+1]
+		switch typed := next.(type) {
+		case *ast.ReturnStmt:
+			return true
+		case *ast.BranchStmt:
+			return typed.Tok == token.BREAK
+		}
+	}
+	return false
+}
+
+func innermostStmt(stack []ast.Node) ast.Stmt {
+	for i := len(stack) - 1; i >= 0; i-- {
+		if stmt, ok := stack[i].(ast.Stmt); ok {
+			return stmt
+		}
+	}
+	return nil
+}
+func innermostBlock(stack []ast.Node) *ast.BlockStmt {
+	for i := len(stack) - 1; i >= 0; i-- {
+		if block, ok := stack[i].(*ast.BlockStmt); ok {
+			return block
+		}
+	}
+	return nil
 }
 
 func getIdentity(expr ast.Expr) *ast.Ident {
