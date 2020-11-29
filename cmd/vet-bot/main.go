@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,12 +15,8 @@ import (
 	"github.com/kalexmills/github-vet/internal/ratelimit"
 	"golang.org/x/oauth2"
 
-	"net/http"
 	_ "net/http/pprof"
 )
-
-const findingsOwner = "kalexmills"         // "github-vet"
-const findingsRepo = "rangeloop-test-repo" //"rangeclosure-findings"
 
 // main runs the vetbot.
 //
@@ -39,7 +36,7 @@ const findingsRepo = "rangeloop-test-repo" //"rangeclosure-findings"
 //
 // vetbot also creates a log file named 'MM-DD-YYYY.log', using the system date.
 func main() {
-	flag.Parse()
+	opts := parseOpts()
 
 	logFilename := time.Now().Format("01-02-2006") + ".log"
 	logFile, err := os.OpenFile(logFilename, os.O_APPEND|os.O_CREATE, 0666)
@@ -49,25 +46,18 @@ func main() {
 	}
 	log.SetOutput(logFile)
 
-	sampler, err := NewRepositorySampler("repos.csv", "visited.csv")
+	sampler, err := NewRepositorySampler(opts.ReposFile, opts.VisitedFile)
 	defer sampler.Close()
 	if err != nil {
 		log.Fatalf("can't start sampler: %v", err)
 	}
-
-	ghToken, ok := os.LookupEnv("GITHUB_TOKEN")
-	if !ok {
-		log.Fatalln("could not find GITHUB_TOKEN environment variable")
-	}
-	vetBot := NewVetBot(ghToken)
-	issueReporter, err := NewIssueReporter(&vetBot, "issues.csv")
+	vetBot := NewVetBot(opts.GithubToken)
+	issueReporter, err := NewIssueReporter(&vetBot, opts.IssuesFile, opts.Owner, opts.Repo)
 	if err != nil {
 		log.Fatalf("can't start issue reporter: %v", err)
 	}
 
-	go sampleRepos(&vetBot, sampler, issueReporter)
-
-	http.ListenAndServe("localhost:8080", nil)
+	sampleRepos(&vetBot, sampler, issueReporter)
 }
 
 func sampleRepos(vetBot *VetBot, sampler *RepositorySampler, issueReporter *IssueReporter) {
@@ -113,4 +103,44 @@ func NewVetBot(token string) VetBot {
 	return VetBot{
 		client: &limited,
 	}
+}
+
+type opts struct {
+	GithubToken string
+	IssuesFile  string
+	ReposFile   string
+	VisitedFile string
+	Owner       string
+	Repo        string
+}
+
+var defaultOpts opts = opts{
+	IssuesFile:  "issues.csv",
+	ReposFile:   "repos.csv",
+	VisitedFile: "visited.csv",
+	Owner:       "github-vet",
+	Repo:        "rangeclosure-findings",
+}
+
+func parseOpts() opts {
+	var ok bool
+	result := defaultOpts
+	result.GithubToken, ok = os.LookupEnv("GITHUB_TOKEN")
+	if !ok {
+		log.Fatalf("could not find GITHUB_TOKEN environment variable")
+	}
+	flag.StringVar(&result.IssuesFile, "issues", result.IssuesFile, "path to issues CSV file")
+	flag.StringVar(&result.ReposFile, "repos", result.ReposFile, "path to repos CSV file")
+	flag.StringVar(&result.VisitedFile, "visited", result.VisitedFile, "path to visited CSV file")
+	ownerStr := flag.String("repo", result.Owner+"/"+result.Repo, "owner/repository of GitHub repo where issues will be filed")
+	flag.Parse()
+
+	repoToks := strings.Split(*ownerStr, "/")
+	if len(repoToks) != 2 {
+		log.Fatalf("could not parse repo flag '%s' which must be in owner/repository format", *ownerStr)
+	}
+	result.Owner = repoToks[0]
+	result.Repo = repoToks[1]
+
+	return result
 }

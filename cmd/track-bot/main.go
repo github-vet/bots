@@ -82,8 +82,17 @@ type opts struct {
 	PollFrequency time.Duration
 }
 
+var defaultOpts opts = opts{
+	TrackingFile:  "issue_tracking.csv",
+	ExpertsFile:   "experts.csv",
+	GophersFile:   "gophers.csv",
+	Owner:         "github-vet",
+	Repo:          "rangeclosure-findings",
+	PollFrequency: 15 * time.Minute,
+}
+
 func parseOpts() opts {
-	result := defaultOpts()
+	result := defaultOpts
 	var ok bool
 	result.GithubToken, ok = os.LookupEnv("GITHUB_TOKEN")
 	if !ok {
@@ -112,17 +121,6 @@ func parseOpts() opts {
 		log.Fatalln("poll frequency must be a positive duration")
 	}
 	return result
-}
-
-func defaultOpts() opts {
-	return opts{
-		TrackingFile:  "issue_tracking.csv",
-		ExpertsFile:   "experts.csv",
-		GophersFile:   "gophers.csv",
-		Owner:         "github-vet",
-		Repo:          "rangeclosure-findings",
-		PollFrequency: 15 * time.Minute,
-	}
 }
 
 // ProcessAllIssues processes all pages of issues found in the provided repository and looks for updates.
