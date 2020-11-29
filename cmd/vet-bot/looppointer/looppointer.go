@@ -69,7 +69,7 @@ func (r Reason) Message(name string, pos token.Position) string {
 	case ReasonPointerReassigned:
 		return fmt.Sprintf("reference to %s is reassigned at line %d", name, pos.Line)
 	case ReasonCallMayWritePtr:
-		return fmt.Sprintf("function call at line %d may save a reference to %s", pos.Line, name)
+		return fmt.Sprintf("function call at line %d may store a reference to %s", pos.Line, name)
 	case ReasonCallMaybeAsync:
 		return fmt.Sprintf("function call which takes a reference to %s at line %d may start a goroutine", name, pos.Line)
 	default:
@@ -191,11 +191,15 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 	if _, ok := syncFuncs[sig]; !ok {
 		return id, rangeLoop, ReasonCallMaybeAsync
 	}
-	var callIdx int
+	callIdx := -1
 	for idx, expr := range callExpr.Args {
 		if expr == n {
 			callIdx = idx
+			break
 		}
+	}
+	if callIdx == -1 {
+		return nil, nil, ReasonNone
 	}
 	for _, safeIdx := range safePtrs[sig] {
 		if callIdx == safeIdx {
@@ -205,22 +209,29 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 	return id, rangeLoop, ReasonCallMayWritePtr
 }
 
-// followedByBreaklike returns true if the current statement is immediately followed by
-// 'return' or 'break'.
+// followedByBreaklike returns true if the current statement is followed by a break or a
+// return in the same block.
 func followedByBreaklike(stack []ast.Node) bool {
 	stmt := innermostStmt(stack)
 	block := innermostBlock(stack)
+	startIdx := -1
 	for idx, s := range block.List {
-		if s != stmt || len(block.List) <= idx+1 {
-			continue
+		if s == stmt && len(block.List) > idx+1 {
+			startIdx = idx + 1
+			break
 		}
-		next := block.List[idx+1]
-		switch typed := next.(type) {
+	}
+	if startIdx == -1 {
+		return false
+	}
+	for i := startIdx; i < len(block.List); i++ {
+		switch typed := block.List[i].(type) {
 		case *ast.ReturnStmt:
 			return true
 		case *ast.BranchStmt:
 			return typed.Tok == token.BREAK
 		}
+		break
 	}
 	return false
 }

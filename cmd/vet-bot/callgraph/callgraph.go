@@ -1,7 +1,7 @@
 package callgraph
 
-// CallGraph represents an approxmiate call-graph, relying on incomplete information found in the function
-// signature. A call-graph has a node for each function, and edges between two nodes a and b if function a calls
+// CallGraph represents an approxmiate call-graph, relying only on the name and arity of each function.
+// A call-graph has a node for each function, and edges between two nodes a and b if function a calls
 // function b. The call-graph this package computes is approximate in the sense that two functions with the same
 // name and arity are considered equivalent. The resulting graph is a coarsening of the actual call-graph in the
 // sense that two functions with matching signatures may refer to the same node in the resulting call graph. When

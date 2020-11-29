@@ -25,11 +25,13 @@ type IssueReporter struct {
 	issueFile *MutexWriter
 	csvWriter *csv.Writer
 	md5s      map[Md5Checksum]struct{} // hashes of the code reported to protect against vendored / duplicated code
+	owner     string
+	repo      string
 }
 
 // NewIssueReporter constructs a new issue reporter with the provided bot. The issue file will be
 // created if it doesn't already exist. It stores a list of issues which have already been opened.
-func NewIssueReporter(bot *VetBot, issueFile string) (*IssueReporter, error) {
+func NewIssueReporter(bot *VetBot, issueFile string, owner, repo string) (*IssueReporter, error) {
 	md5s, err := readMd5s(issueFile)
 	if err != nil {
 		return nil, err
@@ -45,6 +47,8 @@ func NewIssueReporter(bot *VetBot, issueFile string) (*IssueReporter, error) {
 		issueFile: &mw,
 		csvWriter: csv.NewWriter(&mw),
 		md5s:      md5s,
+		owner:     owner,
+		repo:      repo,
 	}, nil
 }
 
@@ -95,7 +99,7 @@ func (ir *IssueReporter) ReportVetResult(result VetResult) {
 	ir.bot.wg.Add(1)
 	go func(result VetResult) {
 		issueRequest := CreateIssueRequest(result)
-		iss, _, err := ir.bot.client.CreateIssue(findingsOwner, findingsRepo, &issueRequest)
+		iss, _, err := ir.bot.client.CreateIssue(ir.owner, ir.repo, &issueRequest)
 		if err != nil {
 			log.Printf("error opening new issue: %v", err)
 			return
@@ -110,7 +114,7 @@ func (ir *IssueReporter) writeIssueToFile(result VetResult, iss *github.Issue) e
 	issueNum := fmt.Sprintf("%d", iss.GetNumber())
 	md5Sum := md5.Sum(result.FileContents)
 	md5Str := base64.StdEncoding.EncodeToString(md5Sum[:])
-	err := ir.csvWriter.Write([]string{findingsOwner, findingsRepo, issueNum, md5Str})
+	err := ir.csvWriter.Write([]string{ir.owner, ir.repo, issueNum, md5Str})
 	ir.csvWriter.Flush()
 	if err != nil {
 		return err
