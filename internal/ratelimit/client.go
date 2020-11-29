@@ -162,10 +162,10 @@ var minAbuseRetry time.Duration = 2 * time.Minute
 
 func (c *Client) blockOnLimit() {
 	c.count++
-	if c.isLimited() {
-		if c.resetAt.After(time.Now().Add(skew)) {
-			log.Printf("rate limit hit; blocking until %T", c.resetAt)
-			<-time.After(c.resetAt.Sub(time.Now()) + skew)
+	if limited, resetAt := c.isLimited(); limited {
+		if resetAt.After(time.Now().Add(skew)) {
+			log.Printf("rate limit hit; blocking until %T", resetAt)
+			<-time.After(resetAt.Sub(time.Now()) + skew)
 		}
 		c.mut.Lock()
 		defer c.mut.Unlock()
@@ -187,10 +187,10 @@ func (c *Client) updateRateLimits(rate github.Rate, err error) {
 	}
 }
 
-func (c *Client) isLimited() bool {
+func (c *Client) isLimited() (bool, time.Time) {
 	c.mut.Lock()
 	defer c.mut.Unlock()
-	return c.limited
+	return c.limited, c.resetAt
 }
 
 func max(a, b time.Duration) time.Duration {

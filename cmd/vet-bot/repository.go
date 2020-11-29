@@ -37,6 +37,7 @@ type VetResult struct {
 	FileContents []byte
 	Start        token.Position
 	End          token.Position
+	Message      string
 }
 
 // Permalink returns the GitHub permalink which refers to the snippet of code retrieved by the VetResult.
@@ -134,28 +135,24 @@ func VetRepo(contents map[string][]byte, files []*ast.File, fset *token.FileSet,
 		ResultOf: make(map[*analysis.Analyzer]interface{}),
 	}
 	var err error
-	log.Println("\trunning inspection")
 	pass.ResultOf[inspect.Analyzer], err = inspect.Analyzer.Run(&pass)
 	if err != nil {
 		log.Printf("failed inspection analysis: %v", err)
 		return
 	}
 
-	log.Println("\trunning callgraph")
 	pass.ResultOf[callgraph.Analyzer], err = callgraph.Analyzer.Run(&pass)
 	if err != nil {
 		log.Printf("failed callgraph analysis: %v", err)
 		return
 	}
 
-	log.Println("\trunning nogofunc")
 	pass.ResultOf[nogofunc.Analyzer], err = nogofunc.Analyzer.Run(&pass)
 	if err != nil {
 		log.Printf("failed nogofunc analysis: %v", err)
 		return
 	}
 
-	log.Println("\trunning pointerescapes")
 	pass.ResultOf[pointerescapes.Analyzer], err = pointerescapes.Analyzer.Run(&pass)
 	if err != nil {
 		log.Printf("failed pointerescapes analysis: %v", err)
@@ -194,7 +191,11 @@ func GetRootCommitID(bot *VetBot, repo Repository) (string, error) {
 func ReportFinding(ir *IssueReporter, fset *token.FileSet, rootCommitID string, repo Repository) Reporter {
 	return func(contents map[string][]byte) func(analysis.Diagnostic) {
 		return func(d analysis.Diagnostic) {
-			filename := d.Message
+			if len(d.Related) != 1 {
+				log.Printf("could not read diagnostic with unexpected 'Related' field: %v", d.Related)
+				return
+			}
+			filename := d.Related[0].Message
 			// split off into a separate thread so any API call to create the issue doesn't block the remaining analysis.
 			ir.ReportVetResult(VetResult{
 				Repository:   repo,
@@ -203,6 +204,7 @@ func ReportFinding(ir *IssueReporter, fset *token.FileSet, rootCommitID string, 
 				FileContents: contents[filename],
 				Start:        fset.Position(d.Pos),
 				End:          fset.Position(d.End),
+				Message:      d.Message,
 			})
 		}
 	}

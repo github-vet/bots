@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -85,6 +86,7 @@ func sampleRepos(vetBot *VetBot, sampler *RepositorySampler, issueReporter *Issu
 				log.Printf("stopping scan due to error :%v", err)
 				break
 			}
+			debug.FreeOSMemory()
 		}
 	}
 }

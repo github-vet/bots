@@ -1,6 +1,7 @@
 package looppointer
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 
@@ -33,29 +34,57 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	}
 
 	inspect.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
-		id, rangeLoop, digg := search.Check(n, stack, pass)
+		id, rangeLoop, reason := search.Check(n, stack, pass)
 		if id != nil {
-			pass.ReportRangef(rangeLoop, pass.Fset.File(n.Pos()).Name())
+			pass.Report(analysis.Diagnostic{
+				Pos:     rangeLoop.Pos(),
+				End:     rangeLoop.End(),
+				Message: reason.Message(id.Name, pass.Fset.Position(id.Pos())),
+				Related: []analysis.RelatedInformation{
+					{Message: pass.Fset.File(n.Pos()).Name()},
+				},
+			})
 		}
-		return digg
+		return reason == ReasonNone
 	})
 
 	return nil, nil
 }
 
 type Searcher struct {
-	// statement variables
 	Stats map[token.Pos]*ast.RangeStmt
 }
 
-func (s *Searcher) Check(n ast.Node, stack []ast.Node, pass *analysis.Pass) (*ast.Ident, *ast.RangeStmt, bool) {
+type Reason uint8
+
+const (
+	ReasonNone Reason = iota
+	ReasonPointerReassigned
+	ReasonCallMayWritePtr
+	ReasonCallMaybeAsync
+)
+
+func (r Reason) Message(name string, pos token.Position) string {
+	switch r {
+	case ReasonPointerReassigned:
+		return fmt.Sprintf("reference to %s is reassigned at line %d", name, pos.Line)
+	case ReasonCallMayWritePtr:
+		return fmt.Sprintf("function call at line %d may save a reference to %s", pos.Line, name)
+	case ReasonCallMaybeAsync:
+		return fmt.Sprintf("function call which takes a reference to %s at line %d may start a goroutine", name, pos.Line)
+	default:
+		return ""
+	}
+}
+
+func (s *Searcher) Check(n ast.Node, stack []ast.Node, pass *analysis.Pass) (*ast.Ident, *ast.RangeStmt, Reason) {
 	switch typed := n.(type) {
 	case *ast.RangeStmt:
 		s.parseRangeStmt(typed)
 	case *ast.UnaryExpr:
 		return s.checkUnaryExpr(typed, stack, pass)
 	}
-	return nil, nil, true
+	return nil, nil, ReasonNone
 }
 
 func (s *Searcher) parseRangeStmt(n *ast.RangeStmt) {
@@ -105,26 +134,26 @@ func (s *Searcher) callExpr(stack []ast.Node) *ast.CallExpr {
 	return nil
 }
 
-func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *analysis.Pass) (*ast.Ident, *ast.RangeStmt, bool) {
+func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *analysis.Pass) (*ast.Ident, *ast.RangeStmt, Reason) {
 	if n.Op != token.AND {
-		return nil, nil, true
+		return nil, nil, ReasonNone
 	}
 
 	loop := s.innermostLoop(stack)
 	if loop == nil { // if this unary expression is not inside a loop, we don't even care.
-		return nil, nil, true
+		return nil, nil, ReasonNone
 	}
 
 	// Get identity of the referred item
 	id := getIdentity(n.X)
 	if id == nil || id.Obj == nil {
-		return nil, nil, true
+		return nil, nil, ReasonNone
 	}
 
 	// If the identity is not the loop statement variable,
 	// it will not be reported.
 	if _, isStat := s.Stats[id.Obj.Pos()]; !isStat {
-		return nil, nil, true
+		return nil, nil, ReasonNone
 	}
 	rangeLoop := s.Stats[id.Obj.Pos()]
 
@@ -133,30 +162,31 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 	assignStmt, child := s.assignStmt(stack)
 	callExpr := s.callExpr(stack)
 	if assignStmt == nil && callExpr == nil {
-		return nil, nil, true
+		return nil, nil, ReasonNone
 	}
 
-	// If the identity is used in an assignStmt, it must be on the right-hand side of a '=' token by itself
+	// If the identity is used in an AssignStmt, it must be on the right-hand side of a '=' token by itself
 	if assignStmt != nil {
 		if assignStmt.Tok != token.DEFINE {
 			for _, expr := range assignStmt.Rhs {
 				if expr == child && child == n {
-					return id, rangeLoop, false
+					return id, rangeLoop, ReasonPointerReassigned
 				}
 				// TODO: a common idiom seems to be to assign to an outer variable and immediately break.
 				//       we can ignore these examples by examining the remainder of the block for a break statement.
 			}
 		}
-		return nil, nil, true
+		return nil, nil, ReasonNone
 	}
+
+	// unaryExpr occurred in a CallExpr
 
 	// certain call expressions are safe.
 	syncFuncs := pass.ResultOf[nogofunc.Analyzer].(*nogofunc.Result).SyncSignatures
 	safePtrs := pass.ResultOf[pointerescapes.Analyzer].(*pointerescapes.Result).SafePtrs
 	sig := callgraph.SignatureFromCallExpr(callExpr)
 	if _, ok := syncFuncs[sig]; !ok {
-		// TODO: report 'expect a go-routine is called'
-		return id, rangeLoop, false
+		return id, rangeLoop, ReasonCallMaybeAsync
 	}
 	var callIdx int
 	for idx, expr := range callExpr.Args {
@@ -166,14 +196,12 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 	}
 	for _, safeIdx := range safePtrs[sig] {
 		if callIdx == safeIdx {
-			return nil, nil, true
+			return nil, nil, ReasonNone
 		}
 	}
-	// TODO: report 'expect pointer escapes'
-	return id, rangeLoop, true
+	return id, rangeLoop, ReasonCallMayWritePtr
 }
 
-// Get variable identity
 func getIdentity(expr ast.Expr) *ast.Ident {
 	switch typed := expr.(type) {
 
