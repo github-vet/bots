@@ -47,6 +47,8 @@ func NewIssueReporter(bot *VetBot, issueFile string, owner, repo string) (*Issue
 		issueFile: &mw,
 		csvWriter: csv.NewWriter(&mw),
 		md5s:      md5s,
+		owner:     owner,
+		repo:      repo,
 	}, nil
 }
 
