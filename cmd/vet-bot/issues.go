@@ -93,7 +93,7 @@ func (ir *IssueReporter) ReportVetResult(result VetResult) {
 	ir.md5s[md5Sum] = struct{}{}
 
 	ir.bot.wg.Add(1)
-	go func() {
+	go func(result VetResult) {
 		issueRequest := CreateIssueRequest(result)
 		iss, _, err := ir.bot.client.CreateIssue(findingsOwner, findingsRepo, &issueRequest)
 		if err != nil {
@@ -103,7 +103,7 @@ func (ir *IssueReporter) ReportVetResult(result VetResult) {
 		ir.writeIssueToFile(result, iss)
 		log.Printf("opened new issue at %s", iss.GetHTMLURL())
 		ir.bot.wg.Done()
-	}()
+	}(result)
 }
 
 func (ir *IssueReporter) writeIssueToFile(result VetResult, iss *github.Issue) error {
@@ -214,7 +214,8 @@ var IssueResultTemplate string = `
 Found a possible issue in [{{.Repository.Owner}}/{{.Repository.Repo}}](https://www.github.com/{{.Repository.Owner}}/{{.Repository.Repo}}) at [{{.FilePath}}]({{.Link}})
 
 The below snippet of Go code triggered static analysis which searches for goroutines and/or defer statements
-which capture loop variables.
+which capture loop variables. 
+
 
 [Click here to see the code in its original context.]({{.Link}})
 
@@ -224,6 +225,12 @@ which capture loop variables.
 ~~~go
 {{.Quote}}
 ~~~
+
+Below is the message reported by the analyzer for this snippet of code. Beware that the analyzer only reports the first
+issue it finds, so please do not limit your consideration to the contents of the below message.
+
+> {{.Message}}
+
 </details>
 
 Leave a reaction on this issue to contribute to the project by classifying this instance as a **Bug** :-1:, **Mitigated** :+1:, or **Desirable Behavior** :rocket:
