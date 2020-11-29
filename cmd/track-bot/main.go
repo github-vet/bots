@@ -12,8 +12,8 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/github-vet/bots/internal/ratelimit"
 	"github.com/google/go-github/v32/github"
-	"github.com/kalexmills/github-vet/internal/ratelimit"
 	"golang.org/x/oauth2"
 )
 

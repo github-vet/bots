@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/kalexmills/github-vet/cmd/vet-bot/pointerescapes"
+	"github.com/github-vet/bots/cmd/vet-bot/pointerescapes"
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 

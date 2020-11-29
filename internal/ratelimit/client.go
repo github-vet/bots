@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net/http"
 	"net/url"
 	"sync"
 	"time"
@@ -51,7 +52,7 @@ func (c *Client) GetCount() int {
 func (c *Client) ListIssuesByRepo(owner, repo string, opt *github.IssueListByRepoOptions) ([]*github.Issue, *github.Response, error) {
 	c.blockOnLimit()
 	issues, resp, err := c.client.Issues.ListByRepo(c.ctx, owner, repo, opt)
-	c.updateRateLimits(resp.Rate, err)
+	c.updateRateLimits(resp.Rate, resp.StatusCode, err)
 	return issues, resp, err
 }
 
@@ -61,7 +62,7 @@ func (c *Client) ListIssuesByRepo(owner, repo string, opt *github.IssueListByRep
 func (c *Client) ListIssueReactions(owner, repo string, number int, opt *github.ListOptions) ([]*github.Reaction, *github.Response, error) {
 	c.blockOnLimit()
 	reactions, resp, err := c.client.Reactions.ListIssueReactions(c.ctx, owner, repo, number, opt)
-	c.updateRateLimits(resp.Rate, err)
+	c.updateRateLimits(resp.Rate, resp.StatusCode, err)
 	return reactions, resp, err
 }
 
@@ -71,7 +72,7 @@ func (c *Client) ListIssueReactions(owner, repo string, number int, opt *github.
 func (c *Client) EditIssue(owner, repo string, number int, req *github.IssueRequest) (*github.Issue, *github.Response, error) {
 	c.blockOnLimit()
 	issue, resp, err := c.client.Issues.Edit(c.ctx, owner, repo, number, req)
-	c.updateRateLimits(resp.Rate, err)
+	c.updateRateLimits(resp.Rate, resp.StatusCode, err)
 	return issue, resp, err
 }
 
@@ -81,7 +82,7 @@ func (c *Client) EditIssue(owner, repo string, number int, req *github.IssueRequ
 func (c *Client) AddLabelsToIssue(owner, repo string, number int, labels []string) ([]*github.Label, *github.Response, error) {
 	c.blockOnLimit()
 	labelResp, resp, err := c.client.Issues.AddLabelsToIssue(c.ctx, owner, repo, number, labels)
-	c.updateRateLimits(resp.Rate, err)
+	c.updateRateLimits(resp.Rate, resp.StatusCode, err)
 	return labelResp, resp, err
 }
 
@@ -91,7 +92,7 @@ func (c *Client) AddLabelsToIssue(owner, repo string, number int, labels []strin
 func (c *Client) RemoveLabelForIssue(owner, repo string, number int, label string) (*github.Response, error) {
 	c.blockOnLimit()
 	resp, err := c.client.Issues.RemoveLabelForIssue(c.ctx, owner, repo, number, label)
-	c.updateRateLimits(resp.Rate, err)
+	c.updateRateLimits(resp.Rate, resp.StatusCode, err)
 	return resp, err
 }
 
@@ -101,7 +102,7 @@ func (c *Client) RemoveLabelForIssue(owner, repo string, number int, label strin
 func (c *Client) ReplaceLabelsForIssue(owner, repo string, number int, labels []string) ([]*github.Label, *github.Response, error) {
 	c.blockOnLimit()
 	labelResp, resp, err := c.client.Issues.ReplaceLabelsForIssue(c.ctx, owner, repo, number, labels)
-	c.updateRateLimits(resp.Rate, err)
+	c.updateRateLimits(resp.Rate, resp.StatusCode, err)
 	return labelResp, resp, err
 }
 
@@ -111,7 +112,7 @@ func (c *Client) ReplaceLabelsForIssue(owner, repo string, number int, labels []
 func (c *Client) CreateIssue(owner, repo string, req *github.IssueRequest) (*github.Issue, *github.Response, error) {
 	c.blockOnLimit()
 	issue, resp, err := c.client.Issues.Create(c.ctx, owner, repo, req)
-	c.updateRateLimits(resp.Rate, err)
+	c.updateRateLimits(resp.Rate, resp.StatusCode, err)
 	return issue, resp, err
 }
 
@@ -121,7 +122,7 @@ func (c *Client) CreateIssue(owner, repo string, req *github.IssueRequest) (*git
 func (c *Client) CreateIssueComment(owner, repo string, number int, comment *github.IssueComment) (*github.IssueComment, *github.Response, error) {
 	c.blockOnLimit()
 	labelResp, resp, err := c.client.Issues.CreateComment(c.ctx, owner, repo, number, comment)
-	c.updateRateLimits(resp.Rate, err)
+	c.updateRateLimits(resp.Rate, resp.StatusCode, err)
 	return labelResp, resp, err
 }
 
@@ -133,7 +134,7 @@ func (c *Client) CreateIssueComment(owner, repo string, number int, comment *git
 func (c *Client) GetArchiveLink(owner, repo string, format github.ArchiveFormat, opt *github.RepositoryContentGetOptions, followRedirects bool) (*url.URL, *github.Response, error) {
 	c.blockOnLimit()
 	url, resp, err := c.client.Repositories.GetArchiveLink(c.ctx, owner, repo, format, opt, followRedirects)
-	c.updateRateLimits(resp.Rate, err)
+	c.updateRateLimits(resp.Rate, resp.StatusCode, err)
 	return url, resp, err
 }
 
@@ -143,7 +144,7 @@ func (c *Client) GetArchiveLink(owner, repo string, format github.ArchiveFormat,
 func (c *Client) GetRepository(owner, repo string) (*github.Repository, *github.Response, error) {
 	c.blockOnLimit()
 	r, resp, err := c.client.Repositories.Get(c.ctx, owner, repo)
-	c.updateRateLimits(resp.Rate, err)
+	c.updateRateLimits(resp.Rate, resp.StatusCode, err)
 	return r, resp, err
 }
 
@@ -153,7 +154,7 @@ func (c *Client) GetRepository(owner, repo string) (*github.Repository, *github.
 func (c *Client) GetRepositoryBranch(owner, repo, branch string) (*github.Branch, *github.Response, error) {
 	c.blockOnLimit()
 	b, resp, err := c.client.Repositories.GetBranch(c.ctx, owner, repo, branch)
-	c.updateRateLimits(resp.Rate, err)
+	c.updateRateLimits(resp.Rate, resp.StatusCode, err)
 	return b, resp, err
 }
 
@@ -173,7 +174,7 @@ func (c *Client) blockOnLimit() {
 	}
 }
 
-func (c *Client) updateRateLimits(rate github.Rate, err error) {
+func (c *Client) updateRateLimits(rate github.Rate, statusCode int, err error) {
 	if _, ok := err.(*github.RateLimitError); ok || rate.Remaining <= 0 {
 		c.mut.Lock()
 		defer c.mut.Unlock()
@@ -184,6 +185,11 @@ func (c *Client) updateRateLimits(rate github.Rate, err error) {
 		defer c.mut.Unlock()
 		c.limited = true
 		c.resetAt = time.Now().Add(max(minAbuseRetry, abuse.GetRetryAfter()))
+	} else if statusCode == http.StatusForbidden {
+		c.mut.Lock()
+		defer c.mut.Unlock()
+		c.limited = true
+		c.resetAt = time.Now().Add(minAbuseRetry)
 	}
 }
 
