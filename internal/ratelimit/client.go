@@ -158,13 +158,14 @@ func (c *Client) GetRepositoryBranch(owner, repo, branch string) (*github.Branch
 }
 
 var skew time.Duration = time.Second
+var minAbuseRetry time.Duration = 2 * time.Minute
 
 func (c *Client) blockOnLimit() {
 	c.count++
-	if c.isLimited() {
-		if c.resetAt.After(time.Now().Add(skew)) {
-			log.Printf("rate limit hit; blocking until %T", c.resetAt)
-			<-time.After(c.resetAt.Sub(time.Now()) + skew)
+	if limited, resetAt := c.isLimited(); limited {
+		if resetAt.After(time.Now().Add(skew)) {
+			log.Printf("rate limit hit; blocking until %T", resetAt)
+			<-time.After(resetAt.Sub(time.Now()) + skew)
 		}
 		c.mut.Lock()
 		defer c.mut.Unlock()
@@ -178,11 +179,23 @@ func (c *Client) updateRateLimits(rate github.Rate, err error) {
 		defer c.mut.Unlock()
 		c.limited = true
 		c.resetAt = rate.Reset.Time
+	} else if abuse, ok := err.(*github.AbuseRateLimitError); ok {
+		c.mut.Lock()
+		defer c.mut.Unlock()
+		c.limited = true
+		c.resetAt = time.Now().Add(max(minAbuseRetry, abuse.GetRetryAfter()))
 	}
 }
 
-func (c *Client) isLimited() bool {
+func (c *Client) isLimited() (bool, time.Time) {
 	c.mut.Lock()
 	defer c.mut.Unlock()
-	return c.limited
+	return c.limited, c.resetAt
+}
+
+func max(a, b time.Duration) time.Duration {
+	if a < b {
+		return b
+	}
+	return a
 }
