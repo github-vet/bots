@@ -19,11 +19,14 @@ type Client struct {
 	ctx    context.Context
 	client *github.Client
 
-	mut     sync.Mutex
-	limited bool
-	resetAt time.Time
-	count   int // used to count API calls
+	mut      sync.Mutex
+	limited  bool
+	resetAt  time.Time
+	count    int // used to count API calls
+	throttle <-chan struct{}
 }
+
+const MaxAPIPerSecond = 50
 
 // NewClient constructs a new client using the provided arguments.
 func NewClient(ctx context.Context, client *github.Client) (Client, error) {
@@ -31,8 +34,9 @@ func NewClient(ctx context.Context, client *github.Client) (Client, error) {
 		return Client{}, errors.New("client must not be nil")
 	}
 	return Client{
-		ctx:    ctx,
-		client: client,
+		ctx:      ctx,
+		client:   client,
+		throttle: NewThrottle(MaxAPIPerSecond),
 	}, nil
 }
 
@@ -162,10 +166,11 @@ var skew time.Duration = time.Second
 var minAbuseRetry time.Duration = 2 * time.Minute
 
 func (c *Client) blockOnLimit() {
+	<-c.throttle
 	c.count++
 	if limited, resetAt := c.isLimited(); limited {
 		if resetAt.After(time.Now().Add(skew)) {
-			log.Printf("rate limit hit; blocking until %T", resetAt)
+			log.Printf("rate limit hit; blocking until %s", resetAt.Format(time.RFC3339))
 			<-time.After(resetAt.Sub(time.Now()) + skew)
 		}
 		c.mut.Lock()
@@ -180,21 +185,21 @@ func (c *Client) updateRateLimits(resp *github.Response, err error) {
 	}
 	rate := resp.Rate
 	statusCode := resp.StatusCode
-	if _, ok := err.(*github.RateLimitError); ok || rate.Remaining <= 0 {
+	if statusCode == http.StatusForbidden {
 		c.mut.Lock()
 		defer c.mut.Unlock()
 		c.limited = true
-		c.resetAt = rate.Reset.Time
+		c.resetAt = time.Now().Add(minAbuseRetry)
 	} else if abuse, ok := err.(*github.AbuseRateLimitError); ok {
 		c.mut.Lock()
 		defer c.mut.Unlock()
 		c.limited = true
 		c.resetAt = time.Now().Add(max(minAbuseRetry, abuse.GetRetryAfter()))
-	} else if statusCode == http.StatusForbidden {
+	} else if _, ok := err.(*github.RateLimitError); ok || rate.Remaining <= 0 {
 		c.mut.Lock()
 		defer c.mut.Unlock()
 		c.limited = true
-		c.resetAt = time.Now().Add(minAbuseRetry)
+		c.resetAt = rate.Reset.Time
 	}
 }
 
@@ -209,4 +214,22 @@ func max(a, b time.Duration) time.Duration {
 		return b
 	}
 	return a
+}
+
+// NewThrottle creates a throttle which can be used to limit the maximum number of outstanding
+// requests. Every second, the throttle receives a dump of transactionsPerSecond tokens to
+func NewThrottle(transactionsPerSecond int) <-chan struct{} {
+	throttle := make(chan struct{}, transactionsPerSecond)
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		for {
+			select {
+			case <-ticker.C:
+				for i := 0; i < transactionsPerSecond; i++ {
+					throttle <- struct{}{}
+				}
+			}
+		}
+	}()
+	return throttle
 }
