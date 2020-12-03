@@ -9,7 +9,6 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/github-vet/bots/internal/ratelimit"
 	"github.com/google/go-github/v32/github"
@@ -37,14 +36,6 @@ func main() {
 	opts := parseOpts()
 
 	log.Printf("opts: %v", opts)
-
-	logFilename := time.Now().Format("01-02-2006") + ".log"
-	logFile, err := os.OpenFile(logFilename, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
-	defer logFile.Close()
-	if err != nil {
-		log.Fatalf("cannot open log file for writing: %v", err)
-	}
-	//log.SetOutput(logFile)
 
 	vetBot := NewVetBot(opts.GithubToken, opts)
 	issueReporter, err := NewIssueReporter(&vetBot, opts.IssuesFile, opts.TargetOwner, opts.TargetRepo)

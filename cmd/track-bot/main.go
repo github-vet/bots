@@ -42,13 +42,6 @@ var CloseTestIssues bool = true
 // trackbot also creates a log file named 'MM-DD-YYYY.log', using the system date.
 func main() {
 	opts := parseOpts()
-	logFilename := time.Now().Format("01-02-2006") + ".log"
-	logFile, err := os.OpenFile(logFilename, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
-	defer logFile.Close()
-	if err != nil {
-		log.Fatalf("cannot open log file for writing: %v", err)
-	}
-	log.SetOutput(logFile)
 
 	bot, err := NewTrackBot(opts)
 	if err != nil {
@@ -101,7 +94,7 @@ func parseOpts() opts {
 	flag.StringVar(&result.ExpertsFile, "experts", result.ExpertsFile, "path to experts CSV file")
 	flag.StringVar(&result.TrackingFile, "tracking", result.TrackingFile, "path to issue tracking CSV file")
 	flag.StringVar(&result.GophersFile, "gophers", result.GophersFile, "path to gophers CSV file")
-	ownerStr := flag.String("repo", result.Repo, "owner/repository of GitHub repo where issues should be tracked")
+	ownerStr := flag.String("repo", result.Owner+"/"+result.Repo, "owner/repository of GitHub repo where issues should be tracked")
 	duration := flag.String("poll", "15m", "polling frequency")
 	flag.Parse()
 
