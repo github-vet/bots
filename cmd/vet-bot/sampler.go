@@ -27,6 +27,11 @@ func NewRepositorySampler(allFile string, visitedFile string) (*RepositorySample
 	if err != nil {
 		return nil, err
 	}
+	repoList := make([]Repository, 0, len(repos))
+	for repo := range repos {
+		repoList = append(repoList, repo)
+	}
+	log.Printf("repository list loaded from %s", allFile)
 	if _, err := os.Stat(visitedFile); err == nil {
 		visitedRepos, err := readRepositoryList(visitedFile)
 		if err != nil {
@@ -36,15 +41,12 @@ func NewRepositorySampler(allFile string, visitedFile string) (*RepositorySample
 			delete(repos, repo)
 		}
 	}
-	repoList := make([]Repository, 0, len(repos))
-	for repo := range repos {
-		repoList = append(repoList, repo)
-	}
 
-	visitedWriter, err := os.OpenFile(visitedFile, os.O_CREATE|os.O_APPEND, 0666)
+	visitedWriter, err := os.OpenFile(visitedFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("visited list loaded from %s", visitedFile)
 	mw := NewMutexWriter(visitedWriter)
 	return &RepositorySampler{
 		unvisited:   repoList,

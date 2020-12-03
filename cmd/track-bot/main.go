@@ -43,7 +43,7 @@ var CloseTestIssues bool = true
 func main() {
 	opts := parseOpts()
 	logFilename := time.Now().Format("01-02-2006") + ".log"
-	logFile, err := os.OpenFile(logFilename, os.O_APPEND|os.O_CREATE, 0666)
+	logFile, err := os.OpenFile(logFilename, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
 	defer logFile.Close()
 	if err != nil {
 		log.Fatalf("cannot open log file for writing: %v", err)

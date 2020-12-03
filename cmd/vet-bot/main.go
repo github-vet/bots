@@ -36,19 +36,22 @@ import (
 func main() {
 	opts := parseOpts()
 
+	log.Printf("opts: %v", opts)
+
 	logFilename := time.Now().Format("01-02-2006") + ".log"
-	logFile, err := os.OpenFile(logFilename, os.O_APPEND|os.O_CREATE, 0666)
+	logFile, err := os.OpenFile(logFilename, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
 	defer logFile.Close()
 	if err != nil {
 		log.Fatalf("cannot open log file for writing: %v", err)
 	}
-	log.SetOutput(logFile)
+	//log.SetOutput(logFile)
 
 	vetBot := NewVetBot(opts.GithubToken, opts)
 	issueReporter, err := NewIssueReporter(&vetBot, opts.IssuesFile, opts.TargetOwner, opts.TargetRepo)
 	if err != nil {
 		log.Fatalf("can't start issue reporter: %v", err)
 	}
+	log.Printf("issues will be written to %s", opts.IssuesFile)
 
 	if opts.SingleRepo == "" {
 		sampler, err := NewRepositorySampler(opts.ReposFile, opts.VisitedFile)
@@ -63,6 +66,7 @@ func main() {
 }
 
 func sampleRepos(vetBot *VetBot, sampler *RepositorySampler, issueReporter *IssueReporter) {
+	log.Println("entering repository sampling loop")
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
 	for {

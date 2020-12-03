@@ -2,3 +2,4 @@
 **/*.exe
 **/*.pem
 **/*.secret
+**/tmp

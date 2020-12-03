@@ -37,7 +37,7 @@ func NewIssueReporter(bot *VetBot, issueFile string, owner, repo string) (*Issue
 		return nil, err
 	}
 
-	issueWriter, err := os.OpenFile(issueFile, os.O_CREATE|os.O_APPEND, 0666)
+	issueWriter, err := os.OpenFile(issueFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		return nil, err
 	}

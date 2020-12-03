@@ -28,7 +28,7 @@ func (i Issue) HasExpertAssessment() bool {
 }
 
 func WriteIssuesFile(path string, issues map[int]*Issue) error {
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_TRUNC, 0666)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE|os.O_TRUNC, 0666)
 	defer file.Close()
 	if err != nil {
 		return err
