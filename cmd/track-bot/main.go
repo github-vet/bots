@@ -42,19 +42,18 @@ var CloseTestIssues bool = true
 // trackbot also creates a log file named 'MM-DD-YYYY.log', using the system date.
 func main() {
 	opts := parseOpts()
-	logFilename := time.Now().Format("01-02-2006") + ".log"
-	logFile, err := os.OpenFile(logFilename, os.O_APPEND|os.O_CREATE, 0666)
-	defer logFile.Close()
-	if err != nil {
-		log.Fatalf("cannot open log file for writing: %v", err)
-	}
-	log.SetOutput(logFile)
 
 	bot, err := NewTrackBot(opts)
 	if err != nil {
 		log.Fatalf("error creating trackbot: %v", err)
 	}
 
+	// run once at start
+	bot.client.ResetCount()
+	ProcessAllIssues(&bot)
+	log.Printf("pass complete; performed %d API calls", bot.client.GetCount())
+
+	// run continuously every poll interval
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	ticker := time.NewTicker(opts.PollFrequency)
@@ -101,7 +100,7 @@ func parseOpts() opts {
 	flag.StringVar(&result.ExpertsFile, "experts", result.ExpertsFile, "path to experts CSV file")
 	flag.StringVar(&result.TrackingFile, "tracking", result.TrackingFile, "path to issue tracking CSV file")
 	flag.StringVar(&result.GophersFile, "gophers", result.GophersFile, "path to gophers CSV file")
-	ownerStr := flag.String("repo", result.Repo, "owner/repository of GitHub repo where issues should be tracked")
+	ownerStr := flag.String("repo", result.Owner+"/"+result.Repo, "owner/repository of GitHub repo where issues should be tracked")
 	duration := flag.String("poll", "15m", "polling frequency")
 	flag.Parse()
 
@@ -162,7 +161,7 @@ func ProcessAllIssues(bot *TrackBot) {
 // ProcessIssuePage processes one page of issues from GitHub.
 func ProcessIssuePage(bot *TrackBot, issuePage []*github.Issue) {
 	for _, issue := range issuePage {
-		MaybeCloseAndLabelTestIssue(bot, *issue)
+		MaybeCloseIssueByLabel(bot, *issue)
 		num := issue.GetNumber()
 		if issue.GetReactions().GetTotalCount() == 0 {
 			if !HasLabel(issue, "fresh") {
@@ -184,24 +183,16 @@ func ProcessIssuePage(bot *TrackBot, issuePage []*github.Issue) {
 	}
 }
 
-// MaybeCloseAndLabelTestIssue closes and labels the issue if it is based on a test file. Trackbot does this since
+// MaybeCloseIssueByLabel closes the issue if it does not need to be considered. Trackbot does this since
 // vetbot has no way to close an issue on its creation (due to apparent limitations in the GitHub API).
-func MaybeCloseAndLabelTestIssue(bot *TrackBot, issue github.Issue) {
-	if !strings.Contains(issue.GetTitle(), "_test.go") {
+func MaybeCloseIssueByLabel(bot *TrackBot, issue github.Issue) {
+	if !HasLabel(&issue, "test") && !HasLabel(&issue, "vendored") {
 		return
 	}
-	var labels []string
-	for _, l := range issue.Labels {
-		labels = append(labels, l.GetName())
-	}
-	if !HasLabel(&issue, "test") {
-		labels = append(labels, "test")
-	}
-	state := "closed"
-	req := github.IssueRequest{}
-	req.Labels = &labels
-	req.State = &state
 	bot.DoAsync(func() {
+		state := "closed"
+		req := github.IssueRequest{}
+		req.State = &state
 		_, _, err := bot.client.EditIssue(bot.owner, bot.repo, issue.GetNumber(), &req)
 		if err != nil {
 			log.Printf("could not mark test issue as closed: %v", err)
@@ -507,11 +498,13 @@ type TrackBot struct {
 	gophers        map[string]*Gopher
 	issues         map[int]*Issue
 	experts        map[string]*Expert
+	throttle       <-chan struct{}
 }
 
 func (b *TrackBot) DoAsync(f func()) {
 	b.wg.Add(1)
 	go func(f func()) {
+		<-b.throttle
 		f()
 		b.wg.Done()
 	}(f)

@@ -1,0 +1,12 @@
+FROM golang:1.14-alpine AS build
+
+WORKDIR /src/
+COPY . /src/
+WORKDIR /src/cmd/track-bot
+RUN CGO_ENABLED=0 go build -a -o /bin/track-bot 
+
+FROM alpine
+RUN apk --no-cache add ca-certificates
+COPY --from=build /src/experts.csv /experts.csv
+COPY --from=build /bin/track-bot /bin/track-bot 
+ENTRYPOINT ["/bin/track-bot", "-experts", "/experts.csv"]

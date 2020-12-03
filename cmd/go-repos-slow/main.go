@@ -136,7 +136,7 @@ func ReadMap(file io.Reader) map[int64]struct{} {
 // WriteScrapeResults writes the set of repos to file, unless any repo's ID is already contained in the
 // vistedMap.
 func WriteScrapeResults(visitedMap map[int64]struct{}, repos []GoRepo, filename string) {
-	file, err := os.OpenFile(filename, os.O_APPEND|os.O_RDWR, 0666)
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_APPEND|os.O_RDWR, 0666)
 	defer file.Close()
 	if err != nil {
 		log.Fatalf("could not open file %v", err)
