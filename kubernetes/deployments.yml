@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-vet-deployment
+  labels:
+    app: github-vet
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: github-vet
+  template:
+    metadata:
+      labels:
+        app: github-vet
+    spec:
+      containers:
+      - name: trackbot
+        image: gcr.io/niftysoft-1024/trackbot:latest
+        envFrom:
+          - secretRef:
+              name: github-vet-secrets
+      - name: vetbot
+        image: gcr.io/niftysoft-1024/vetbot:latest
+        envFrom:
+          - secretRef:
+              name: github-vet-secrets
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: github-vet-bot-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi

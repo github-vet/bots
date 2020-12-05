@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"log"
 	"os"
 	"os/signal"
@@ -41,7 +40,12 @@ var CloseTestIssues bool = true
 //
 // trackbot also creates a log file named 'MM-DD-YYYY.log', using the system date.
 func main() {
-	opts := parseOpts()
+	opts, err := parseOpts()
+	if err != nil {
+		log.Fatalf("error during config: %v", err)
+	}
+
+	log.Printf("configured options: %v", opts)
 
 	bot, err := NewTrackBot(opts)
 	if err != nil {
@@ -69,57 +73,6 @@ func main() {
 			return
 		}
 	}
-}
-
-type opts struct {
-	GithubToken   string
-	TrackingFile  string
-	ExpertsFile   string
-	GophersFile   string
-	Owner         string
-	Repo          string
-	PollFrequency time.Duration
-}
-
-var defaultOpts opts = opts{
-	TrackingFile:  "issue_tracking.csv",
-	ExpertsFile:   "experts.csv",
-	GophersFile:   "gophers.csv",
-	Owner:         "github-vet",
-	Repo:          "rangeclosure-findings",
-	PollFrequency: 15 * time.Minute,
-}
-
-func parseOpts() opts {
-	result := defaultOpts
-	var ok bool
-	result.GithubToken, ok = os.LookupEnv("GITHUB_TOKEN")
-	if !ok {
-		log.Fatalln("could not find GITHUB_TOKEN environment variable")
-	}
-	flag.StringVar(&result.ExpertsFile, "experts", result.ExpertsFile, "path to experts CSV file")
-	flag.StringVar(&result.TrackingFile, "tracking", result.TrackingFile, "path to issue tracking CSV file")
-	flag.StringVar(&result.GophersFile, "gophers", result.GophersFile, "path to gophers CSV file")
-	ownerStr := flag.String("repo", result.Owner+"/"+result.Repo, "owner/repository of GitHub repo where issues should be tracked")
-	duration := flag.String("poll", "15m", "polling frequency")
-	flag.Parse()
-
-	repoToks := strings.Split(*ownerStr, "/")
-	if len(repoToks) != 2 {
-		log.Fatalf("could not parse repo flag '%s' which must be in owner/repository format", *ownerStr)
-	}
-	result.Owner = repoToks[0]
-	result.Repo = repoToks[1]
-
-	var err error
-	result.PollFrequency, err = time.ParseDuration(*duration)
-	if err != nil {
-		log.Fatalf("could not parse poll frequency '%s' as a valid duration", *duration)
-	}
-	if result.PollFrequency < 0 {
-		log.Fatalln("poll frequency must be a positive duration")
-	}
-	return result
 }
 
 // ProcessAllIssues processes all pages of issues found in the provided repository and looks for updates.
