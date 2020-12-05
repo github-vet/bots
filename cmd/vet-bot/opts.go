@@ -41,18 +41,18 @@ var optSchemas []OptSchema = []OptSchema{
 		func(o *opts, value string) error { o.GithubToken = value; return nil }},
 	{"TRACKING_FILE", "issues", "path to issues CSV file", "issues.csv", false,
 		func(o *opts, value string) error { o.IssuesFile = value; return nil }},
-	{"EXPERTS_FILE", "repos", "path to repos CSV file", "experts.csv", false,
+	{"REPOS_FILE", "repos", "path to repos CSV file", "repos.csv", false,
 		func(o *opts, value string) error { o.ReposFile = value; return nil }},
-	{"GOPHERS_FILE", "visited", "path to visited repository CSV file", "gophers.csv", false,
+	{"VISITED_FILE", "visited", "path to visited repository CSV file", "visited.csv", false,
 		func(o *opts, value string) error { o.VisitedFile = value; return nil }},
-	{"REPO_TO_READ", "single", "owner/repository of single repository to read", "", false,
+	{"REPO_TO_READ", "read-single", "owner/repository of single repository to read", "", false,
 		func(o *opts, value string) error {
 			o.SingleOwner, o.SingleRepo = parseRepoString(value, "single")
 			return nil
 		}},
-	{"GITHUB_REPO", "repo", "owner/repository of GitHub repo where issues will be filed", "", false,
+	{"GITHUB_REPO", "repo", "owner/repository of GitHub repo where issues will be filed", "kalexmills/rangeloop-test-repo", false,
 		func(o *opts, value string) error {
-			o.TargetOwner, o.TargetRepo = parseRepoString(value, "single")
+			o.TargetOwner, o.TargetRepo = parseRepoString(value, "repo")
 			return nil
 		}},
 }
