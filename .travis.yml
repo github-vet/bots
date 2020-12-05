@@ -3,6 +3,9 @@ language: go
 services:
   - docker
 
+env:
+  - GO111MODULE=on
+
 before_install:
   - docker build -t trackbot . -f ./docker/trackbot.dockerfile
   - docker build -t vetbot . -f ./docker/trackbot.dockerfile
