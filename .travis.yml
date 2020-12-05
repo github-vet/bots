@@ -24,7 +24,7 @@ before_deploy:
   - gcloud --quiet components update
 deploy:
   - provider: script
-    script: chmod +x docker/container-build.sh && sh docker/container-build.sh
+    script: chmod +x docker/container-build.sh && bash docker/container-build.sh
     skip_cleanup: true
     on:
       branch: develop
