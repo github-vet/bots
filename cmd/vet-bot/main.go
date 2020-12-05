@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"flag"
 	"log"
 	"os"
 	"os/signal"
 	"runtime/debug"
-	"strings"
 	"sync"
 
 	"github.com/github-vet/bots/internal/ratelimit"
@@ -33,9 +31,12 @@ import (
 //
 // vetbot also creates a log file named 'MM-DD-YYYY.log', using the system date.
 func main() {
-	opts := parseOpts()
+	opts, err := parseOpts()
+	if err != nil {
+		log.Fatalf("error during config: %v", err)
+	}
 
-	log.Printf("opts: %v", opts)
+	log.Printf("configured options: %v", opts)
 
 	vetBot := NewVetBot(opts.GithubToken, opts)
 	issueReporter, err := NewIssueReporter(&vetBot, opts.IssuesFile, opts.TargetOwner, opts.TargetRepo)
@@ -109,53 +110,4 @@ func NewVetBot(token string, opts opts) VetBot {
 		client: &limited,
 		opts:   opts,
 	}
-}
-
-type opts struct {
-	GithubToken string
-	IssuesFile  string
-	ReposFile   string
-	VisitedFile string
-	TargetOwner string
-	TargetRepo  string
-	SingleOwner string
-	SingleRepo  string
-}
-
-var defaultOpts opts = opts{
-	IssuesFile:  "issues.csv",
-	ReposFile:   "repos.csv",
-	VisitedFile: "visited.csv",
-	TargetOwner: "github-vet",
-	TargetRepo:  "rangeclosure-findings",
-}
-
-func parseOpts() opts {
-	var ok bool
-	result := defaultOpts
-	result.GithubToken, ok = os.LookupEnv("GITHUB_TOKEN")
-	if !ok {
-		log.Fatalf("could not find GITHUB_TOKEN environment variable")
-	}
-	flag.StringVar(&result.IssuesFile, "issues", result.IssuesFile, "path to issues CSV file")
-	flag.StringVar(&result.ReposFile, "repos", result.ReposFile, "path to repos CSV file")
-	flag.StringVar(&result.VisitedFile, "visited", result.VisitedFile, "path to visited CSV file")
-	singleStr := flag.String("single", "", "owner/repository of a single repository to read")
-	ownerStr := flag.String("repo", result.TargetOwner+"/"+result.TargetRepo, "owner/repository of GitHub repo where issues will be filed")
-	flag.Parse()
-
-	if *singleStr != "" {
-		result.SingleOwner, result.SingleRepo = parseRepoString(*singleStr, "single")
-	}
-	result.TargetOwner, result.TargetRepo = parseRepoString(*ownerStr, "repo")
-
-	return result
-}
-
-func parseRepoString(str string, flag string) (string, string) {
-	repoToks := strings.Split(str, "/")
-	if len(repoToks) != 2 {
-		log.Fatalf("could not parse %s flag '%s' which must be in owner/repository format", flag, str)
-	}
-	return repoToks[0], repoToks[1]
 }

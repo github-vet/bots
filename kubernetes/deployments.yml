@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-vet-deployment
+  labels:
+    app: github-vet
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: github-vet
+  template:
+    metadata:
+      labels:
+        app: github-vet
+    spec:
+      containers:
+      - name: trackbot
+        image: gcr.io/niftysoft-1024/trackbot:latest
+        env:
+          - name: TRACKING_FILE
+            value: /data/issue_tracking.csv
+          - name: GOPHERS_FILE
+            value: /data/gophers.csv
+          - name: EXPERTS_FILE
+            value: /config/experts.csv
+        envFrom:
+          - secretRef:
+              name: github-vet-secrets
+        volumeMounts:
+          - name: botspace
+            mountPath: /data
+            subPath: data/trackbot
+          - name: experts
+            mountPath: /config
+      - name: vetbot
+        image: gcr.io/niftysoft-1024/vetbot:latest
+        env:
+          - name: TRACKING_FILE
+            value: /data/issues.csv
+          # TODO: Don't use the list of repos baked into the container
+          # - name: REPOS_FILE
+          #   value: /data/repos.csv
+          - name: VISITED_FILE
+            value: /data/gophers.csv
+        envFrom:
+          - secretRef:
+              name: github-vet-secrets
+        volumeMounts:
+          - name: botspace
+            mountPath: /data
+            subPath: data/vetbot
+      volumes:
+        - name: botspace
+          persistentVolumeClaim:
+              claimName: github-vet-bot-storage
+        - name: experts
+          configMap:
+              name: github-vet-bot-experts
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: github-vet-bot-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
