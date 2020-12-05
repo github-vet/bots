@@ -71,7 +71,7 @@ func parseOpts() (opts, error) {
 			schema.OptSetter(&result, value)
 			continue
 		}
-		if schema.DefaultValue == "" && schema.Required {
+		if schema.DefaultValue == "" {
 			if schema.Required {
 				return opts{}, fmt.Errorf("no configured value for required option '%s'", schema.EnvArgName)
 			}
