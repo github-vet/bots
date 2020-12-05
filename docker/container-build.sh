@@ -3,6 +3,7 @@
 set -e
 
 VETBOT_IMAGE=vetbot
+TRACKBOT_IMAGE=trackbot
 
 docker build -t gcr.io/${PROJECT_PROD}/${VETBOT_IMAGE}:$TRAVIS_COMMIT -f docker/vetbot.dockerfile .
 docker build -t gcr.io/${PROJECT_PROD}/${TRACKBOT_IMAGE}:$TRAVIS_COMMIT -f docker/trackbot.dockerfile .
