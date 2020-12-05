@@ -24,6 +24,8 @@ spec:
             value: /data/gophers.csv
           - name: EXPERTS_FILE
             value: /config/experts.csv
+          - name: GITHUB_REPO
+            value: kalexmills/github-vet-tests-dec2020
         envFrom:
           - secretRef:
               name: github-vet-secrets
@@ -43,6 +45,8 @@ spec:
           #   value: /data/repos.csv
           - name: VISITED_FILE
             value: /data/gophers.csv
+          - name: GITHUB_REPO
+            value: kalexmills/github-vet-tests-dec2020
         envFrom:
           - secretRef:
               name: github-vet-secrets

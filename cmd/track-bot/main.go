@@ -45,7 +45,7 @@ func main() {
 		log.Fatalf("error during config: %v", err)
 	}
 
-	log.Printf("configured options: %v", opts)
+	log.Printf("configured options: %+v", opts)
 
 	bot, err := NewTrackBot(opts)
 	if err != nil {
