@@ -451,13 +451,11 @@ type TrackBot struct {
 	gophers        map[string]*Gopher
 	issues         map[int]*Issue
 	experts        map[string]*Expert
-	throttle       <-chan struct{}
 }
 
 func (b *TrackBot) DoAsync(f func()) {
 	b.wg.Add(1)
 	go func(f func()) {
-		<-b.throttle
 		f()
 		b.wg.Done()
 	}(f)
