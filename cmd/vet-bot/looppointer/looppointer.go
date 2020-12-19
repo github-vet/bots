@@ -175,11 +175,9 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 		if followedBySafeBreak(stack, innermostRangesOverID) {
 			return nil, nil, ReasonNone
 		}
-		if assignStmt.Tok != token.DEFINE {
-			for _, expr := range assignStmt.Rhs {
-				if expr.Pos() == child.Pos() && child.Pos() == n.Pos() {
-					return id, rangeLoop, ReasonPointerReassigned
-				}
+		for _, expr := range assignStmt.Rhs {
+			if expr.Pos() == child.Pos() && child.Pos() == n.Pos() {
+				return id, rangeLoop, ReasonPointerReassigned
 			}
 		}
 		return nil, nil, ReasonNone
