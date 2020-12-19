@@ -45,7 +45,7 @@ func main() {
 		log.Fatalf("error during config: %v", err)
 	}
 
-	log.Printf("configured options: %v", opts)
+	log.Printf("configured options: %+v", opts)
 
 	bot, err := NewTrackBot(opts)
 	if err != nil {
@@ -378,7 +378,7 @@ func isValidReaction(reaction string) bool {
 	return false
 }
 
-// DisagreementTemplate is the template used to comment when experts disagree on the outcome of an issue.
+// DisagreementTemplate is the template used to comment whenever experts disagree on the outcome of an issue.
 const DisagreementTemplate string = `
 Detected disagreement among experts! {{range $username := .Usernames }} @{{$username}} {{end}} please discuss.
 
@@ -451,13 +451,11 @@ type TrackBot struct {
 	gophers        map[string]*Gopher
 	issues         map[int]*Issue
 	experts        map[string]*Expert
-	throttle       <-chan struct{}
 }
 
 func (b *TrackBot) DoAsync(f func()) {
 	b.wg.Add(1)
 	go func(f func()) {
-		<-b.throttle
 		f()
 		b.wg.Done()
 	}(f)

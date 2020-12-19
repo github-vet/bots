@@ -30,4 +30,4 @@ deploy:
     on:
       branch: develop
 
-# TODO: deploy on tag, instead of just building containers
+# TODO: deploy to kubernetes clusuter when master is tagged.

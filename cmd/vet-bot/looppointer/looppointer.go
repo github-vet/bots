@@ -5,8 +5,10 @@ import (
 	"go/ast"
 	"go/token"
 
+	"github.com/github-vet/bots/cmd/vet-bot/acceptlist"
 	"github.com/github-vet/bots/cmd/vet-bot/callgraph"
 	"github.com/github-vet/bots/cmd/vet-bot/nogofunc"
+	"github.com/github-vet/bots/cmd/vet-bot/packid"
 	"github.com/github-vet/bots/cmd/vet-bot/pointerescapes"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -18,7 +20,7 @@ var Analyzer = &analysis.Analyzer{
 	Doc:              "checks for pointers to enclosing loop variables; modified for sweeping GitHub",
 	Run:              run,
 	RunDespiteErrors: true,
-	Requires:         []*analysis.Analyzer{inspect.Analyzer, callgraph.Analyzer, nogofunc.Analyzer, pointerescapes.Analyzer},
+	Requires:         []*analysis.Analyzer{inspect.Analyzer, packid.Analyzer, callgraph.Analyzer, nogofunc.Analyzer, pointerescapes.Analyzer},
 }
 
 func run(pass *analysis.Pass) (interface{}, error) {
@@ -105,7 +107,7 @@ func insertionPosition(block *ast.BlockStmt) token.Pos {
 	return token.NoPos
 }
 
-func (s *Searcher) innermostLoop(stack []ast.Node) ast.Node {
+func (s *Searcher) innermostLoop(stack []ast.Node) *ast.RangeStmt {
 	for i := len(stack) - 1; i >= 0; i-- {
 		if typed, ok := stack[i].(*ast.RangeStmt); ok {
 			return typed
@@ -139,8 +141,8 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 		return nil, nil, ReasonNone
 	}
 
-	loop := s.innermostLoop(stack)
-	if loop == nil { // if this unary expression is not inside a loop, we don't even care.
+	innermostLoop := s.innermostLoop(stack)
+	if innermostLoop == nil { // if this unary expression is not inside a loop, we don't even care.
 		return nil, nil, ReasonNone
 	}
 
@@ -167,14 +169,15 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 
 	// If the identity is used in an AssignStmt, it must be on the right-hand side of a '=' token by itself
 	if assignStmt != nil {
-		// if the assignment is immediately followed by return or break, no harm can be done by the assignment
-		// as the range-loop variable will never be updated again.
-		if followedByBreaklike(stack) {
+		// if the assignment is immediately followed by return or breaks out of the range loop, no harm can
+		// be done by the assignment as the range-loop variable will never be updated again.
+		innermostRangesOverID := innermostLoop == rangeLoop // true iff innermost loop ranges over the target unary expression
+		if followedBySafeBreak(stack, innermostRangesOverID) {
 			return nil, nil, ReasonNone
 		}
 		if assignStmt.Tok != token.DEFINE {
 			for _, expr := range assignStmt.Rhs {
-				if expr == child && child == n {
+				if expr.Pos() == child.Pos() && child.Pos() == n.Pos() {
 					return id, rangeLoop, ReasonPointerReassigned
 				}
 			}
@@ -184,16 +187,25 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 
 	// unaryExpr occurred in a CallExpr
 
+	// check if CallExpr is acceptlisted, ignore it if so.
+	if acceptlist.GlobalAcceptList != nil {
+		packageResolver := pass.ResultOf[packid.Analyzer].(*packid.PackageResolver)
+		if acceptlist.GlobalAcceptList.IgnoreCall(packageResolver, callExpr, stack) {
+			return nil, nil, ReasonNone
+		}
+	}
+
 	// certain call expressions are safe.
 	syncFuncs := pass.ResultOf[nogofunc.Analyzer].(*nogofunc.Result).SyncSignatures
 	safePtrs := pass.ResultOf[pointerescapes.Analyzer].(*pointerescapes.Result).SafePtrs
+
 	sig := callgraph.SignatureFromCallExpr(callExpr)
 	if _, ok := syncFuncs[sig]; !ok {
 		return id, rangeLoop, ReasonCallMaybeAsync
 	}
 	callIdx := -1
 	for idx, expr := range callExpr.Args {
-		if expr == n {
+		if expr.Pos() == n.Pos() {
 			callIdx = idx
 			break
 		}
@@ -209,9 +221,9 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 	return id, rangeLoop, ReasonCallMayWritePtr
 }
 
-// followedByBreaklike returns true if the current statement is followed by a break or a
-// return in the same block.
-func followedByBreaklike(stack []ast.Node) bool {
+// followedBySafeBreak returns true if the current statement is followed by a return or
+// a break statement which will end the loop containing the target range variable.
+func followedBySafeBreak(stack []ast.Node, innermostRangesOverID bool) bool {
 	stmt := innermostStmt(stack)
 	block := innermostBlock(stack)
 	startIdx := -1
@@ -229,7 +241,7 @@ func followedByBreaklike(stack []ast.Node) bool {
 		case *ast.ReturnStmt:
 			return true
 		case *ast.BranchStmt:
-			return typed.Tok == token.BREAK
+			return innermostRangesOverID && typed.Tok == token.BREAK
 		}
 		break
 	}

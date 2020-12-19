@@ -5,6 +5,8 @@ import (
 	"go/token"
 	"reflect"
 
+	"github.com/github-vet/bots/cmd/vet-bot/acceptlist"
+	"github.com/github-vet/bots/cmd/vet-bot/packid"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -16,7 +18,7 @@ var Analyzer = &analysis.Analyzer{
 	Doc:              "computes an approximate callgraph based on function arity, name, and nothing else",
 	Run:              run,
 	RunDespiteErrors: true,
-	Requires:         []*analysis.Analyzer{inspect.Analyzer},
+	Requires:         []*analysis.Analyzer{inspect.Analyzer, packid.Analyzer},
 	ResultType:       reflect.TypeOf((*Result)(nil)),
 }
 
@@ -63,6 +65,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		(*ast.CallExpr)(nil),
 	}
 
+	packageResolver := pass.ResultOf[packid.Analyzer].(*packid.PackageResolver)
 	result := Result{}
 	inspect.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
 		if !push {
@@ -73,6 +76,10 @@ func run(pass *analysis.Pass) (interface{}, error) {
 			sig := parseSignature(typed)
 			result.Signatures = append(result.Signatures, sig)
 		case *ast.CallExpr:
+			if acceptlist.GlobalAcceptList != nil &&
+				acceptlist.GlobalAcceptList.IgnoreCall(packageResolver, typed, stack) {
+				return true
+			}
 			call := parseCall(typed, stack)
 			result.Calls = append(result.Calls, call)
 		}

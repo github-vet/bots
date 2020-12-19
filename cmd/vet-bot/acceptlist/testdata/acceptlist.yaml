@@ -1,0 +1,6 @@
+accept:
+  "fmt":
+    - Println
+    - Printf
+  yaml:
+    - Unmarshal

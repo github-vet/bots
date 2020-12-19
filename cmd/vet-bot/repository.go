@@ -17,6 +17,7 @@ import (
 	"github.com/github-vet/bots/cmd/vet-bot/loopclosure"
 	"github.com/github-vet/bots/cmd/vet-bot/looppointer"
 	"github.com/github-vet/bots/cmd/vet-bot/nogofunc"
+	"github.com/github-vet/bots/cmd/vet-bot/packid"
 	"github.com/github-vet/bots/cmd/vet-bot/pointerescapes"
 	"github.com/google/go-github/v32/github"
 	"golang.org/x/tools/go/analysis"
@@ -139,6 +140,11 @@ func VetRepo(contents map[string][]byte, files []*ast.File, fset *token.FileSet,
 	if err != nil {
 		log.Printf("failed inspection analysis: %v", err)
 		return
+	}
+
+	pass.ResultOf[packid.Analyzer], err = packid.Analyzer.Run(&pass)
+	if err != nil {
+		log.Printf("failed packid analysis: %v", err)
 	}
 
 	pass.ResultOf[callgraph.Analyzer], err = callgraph.Analyzer.Run(&pass)

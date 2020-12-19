@@ -8,6 +8,7 @@ import (
 	"runtime/debug"
 	"sync"
 
+	"github.com/github-vet/bots/cmd/vet-bot/acceptlist"
 	"github.com/github-vet/bots/internal/ratelimit"
 	"github.com/google/go-github/v32/github"
 	"golang.org/x/oauth2"
@@ -36,14 +37,22 @@ func main() {
 		log.Fatalf("error during config: %v", err)
 	}
 
-	log.Printf("configured options: %v", opts)
+	log.Printf("configured options: %+v", opts)
 
 	vetBot := NewVetBot(opts.GithubToken, opts)
 	issueReporter, err := NewIssueReporter(&vetBot, opts.IssuesFile, opts.TargetOwner, opts.TargetRepo)
+	defer issueReporter.Close()
 	if err != nil {
 		log.Fatalf("can't start issue reporter: %v", err)
 	}
 	log.Printf("issues will be written to %s", opts.IssuesFile)
+
+	if opts.AcceptListPath != "" {
+		err := LoadAcceptList(opts.AcceptListPath)
+		if err != nil {
+			log.Fatalf("cannot read accept list: %v", err)
+		}
+	}
 
 	if opts.SingleRepo == "" {
 		sampler, err := NewRepositorySampler(opts.ReposFile, opts.VisitedFile)
@@ -71,7 +80,7 @@ func sampleRepos(vetBot *VetBot, sampler *RepositorySampler, issueReporter *Issu
 				return VetRepositoryBulk(vetBot, issueReporter, r)
 			})
 			if err != nil {
-				log.Printf("stopping scan due to error :%v", err)
+				log.Printf("stopping scan due to error: %v", err)
 				break
 			}
 			debug.FreeOSMemory()
@@ -80,10 +89,14 @@ func sampleRepos(vetBot *VetBot, sampler *RepositorySampler, issueReporter *Issu
 }
 
 func sampleRepo(vetBot *VetBot, issueReporter *IssueReporter) {
-	VetRepositoryBulk(vetBot, issueReporter, Repository{
+	err := VetRepositoryBulk(vetBot, issueReporter, Repository{
 		Owner: vetBot.opts.SingleOwner,
 		Repo:  vetBot.opts.SingleRepo,
 	})
+	if err != nil {
+		log.Printf("error: %v", err)
+	}
+	vetBot.wg.Wait()
 }
 
 // VetBot wraps the GitHub client and context used for all GitHub API requests.
@@ -110,4 +123,12 @@ func NewVetBot(token string, opts opts) VetBot {
 		client: &limited,
 		opts:   opts,
 	}
+}
+
+func LoadAcceptList(path string) error {
+	acceptList, err := acceptlist.AcceptListFromFile(path)
+	if err == nil {
+		acceptlist.GlobalAcceptList = &acceptList
+	}
+	return err
 }
