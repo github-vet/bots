@@ -35,4 +35,16 @@ The static analysis procedure uses only syntactic information produced by the Go
 
 ## How Can I Help?
 
-Head over to [the findings repository](https://github.com/github-vet/rangeloop-findings) to dive in and help! We are also looking for Golang experts to provide high-quality review of our findings. If you're an expert, please apply for consideration and we'll happily assign you some code to read!
+Head over to [the findings repository](https://github.com/github-vet/rangeloop-pointer-findings) to dive in and help! We are also looking for Golang experts to provide high-quality review of our findings. If you're an expert, please apply for consideration and we'll happily assign you some code to read!
+
+## No Really, How Does It Work?
+
+There are two bots, VetBot and TrackBot. VetBot is responsible for finding issues in Go repositories on GitHub. TrackBot is responsible for managing the community crowd-sourcing effort.
+
+VetBot starts from a list of GitHub repositories to read from. It reads the default branch in each repository as a tarball, parsing any `.go` files it finds. Once it's built the parse tree of the entire repository, it runs two static analyzers tailored to the rangeloop capture problem. If either of these analyzers report an issue for a section of code, VetBot opens an issue on [a specific repository](https://github.com/github-vet/rangeloop-pointer-findings) which contains the segment of code that triggered the analyzer, and a link back to the repository where the code was found.
+
+TrackBot runs periodically. Each time it wakes up, it reads through every issue in [the target repository](https://github.com/github-vet/rangeloop-pointer-findings). When it finds any issue that is not tagged properly, it updates the tags. It checks through the reactions left on every issue and uses them to update the community and expert opinions around the issue. When an expert leaves an opinion on an issue, the issue is closed. TrackBot also takes into account how often each account that has left a reaction has agreed with the expert opinion, and uses this to determine when enough reliable feedback has been given to make an assessment.
+
+Both VetBot and TrackBot respect the rate-limits on GitHub's API.
+
+For a more detailed overview, checkout the READMEs for TrackBot and VetBot.
