@@ -25,7 +25,7 @@ spec:
           - name: EXPERTS_FILE
             value: /config/experts.csv
           - name: GITHUB_REPO
-            value: kalexmills/github-vet-tests-dec2020
+            value: github-vet/rangeloop-pointer-findings
         envFrom:
           - secretRef:
               name: github-vet-secrets
@@ -44,9 +44,11 @@ spec:
           # - name: REPOS_FILE
           #   value: /data/repos.csv
           - name: VISITED_FILE
-            value: /data/gophers.csv
+            value: /data/visited_repos.csv
           - name: GITHUB_REPO
-            value: kalexmills/github-vet-tests-dec2020
+            value: github-vet/rangeloop-pointer-findings
+          - name: ACCEPT_LIST_FILE
+            value: /config/accept.yml
         envFrom:
           - secretRef:
               name: github-vet-secrets
@@ -54,13 +56,18 @@ spec:
           - name: botspace
             mountPath: /data
             subPath: data/vetbot
+          - name: acceptlist
+            mountPath: /config
       volumes:
         - name: botspace
           persistentVolumeClaim:
               claimName: github-vet-bot-storage
         - name: experts
           configMap:
-              name: github-vet-bot-experts
+              name: github-track-bot-experts
+        - name: acceptlist
+          configMap:
+              name: github-vet-bot-acceptlist
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
