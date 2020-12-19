@@ -89,7 +89,8 @@ func readMd5s(filename string) (map[Md5Checksum]struct{}, error) {
 
 // ReportVetResult asynchronously creates a new GitHub issue to report the findings of the VetResult.
 func (ir *IssueReporter) ReportVetResult(result VetResult) {
-	md5Sum := md5.Sum(result.FileContents)
+	quote := QuoteFinding(result)
+	md5Sum := md5.Sum([]byte(quote))
 	if _, ok := ir.md5s[md5Sum]; ok {
 		log.Printf("found duplicated code in %s", result.FilePath)
 		return
@@ -98,21 +99,20 @@ func (ir *IssueReporter) ReportVetResult(result VetResult) {
 
 	ir.bot.wg.Add(1)
 	go func(result VetResult) {
-		issueRequest := CreateIssueRequest(result)
+		issueRequest := CreateIssueRequest(result, quote)
 		iss, _, err := ir.bot.client.CreateIssue(ir.owner, ir.repo, &issueRequest)
 		if err != nil {
 			log.Printf("error opening new issue: %v", err)
 			return
 		}
-		ir.writeIssueToFile(result, iss)
+		ir.writeIssueToFile(result, iss, md5Sum)
 		log.Printf("opened new issue at %s", iss.GetHTMLURL())
 		ir.bot.wg.Done()
 	}(result)
 }
 
-func (ir *IssueReporter) writeIssueToFile(result VetResult, iss *github.Issue) error {
+func (ir *IssueReporter) writeIssueToFile(result VetResult, iss *github.Issue, md5Sum [16]byte) error {
 	issueNum := fmt.Sprintf("%d", iss.GetNumber())
-	md5Sum := md5.Sum(result.FileContents)
 	md5Str := base64.StdEncoding.EncodeToString(md5Sum[:])
 	err := ir.csvWriter.Write([]string{ir.owner, ir.repo, issueNum, md5Str})
 	ir.csvWriter.Flush()
@@ -124,11 +124,11 @@ func (ir *IssueReporter) writeIssueToFile(result VetResult, iss *github.Issue) e
 
 // CreateIssueRequest writes the header and description of the GitHub issue which is opened with the result
 // of any findings.
-func CreateIssueRequest(result VetResult) github.IssueRequest {
+func CreateIssueRequest(result VetResult, quote string) github.IssueRequest {
 
 	slocCount := result.End.Line - result.Start.Line + 1
 	title := fmt.Sprintf("%s/%s: %s; %d LoC", result.Owner, result.Repo, result.FilePath, slocCount)
-	body := Description(result)
+	body := Description(result, quote)
 	labels := Labels(result)
 	state := State(result)
 
@@ -142,9 +142,8 @@ func CreateIssueRequest(result VetResult) github.IssueRequest {
 }
 
 // Description writes the description of an issue, given a VetResult.
-func Description(result VetResult) string {
+func Description(result VetResult, quote string) string {
 	permalink := fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s#L%d-L%d", result.Owner, result.Repo, result.RootCommitID, result.Start.Filename, result.Start.Line, result.End.Line)
-	quote := QuoteFinding(result)
 	slocCount := result.End.Line - result.Start.Line + 1
 
 	var b strings.Builder

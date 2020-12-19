@@ -378,7 +378,7 @@ func isValidReaction(reaction string) bool {
 	return false
 }
 
-// DisagreementTemplate is the template used to comment when experts disagree on the outcome of an issue.
+// DisagreementTemplate is the template used to comment whenever experts disagree on the outcome of an issue.
 const DisagreementTemplate string = `
 Detected disagreement among experts! {{range $username := .Usernames }} @{{$username}} {{end}} please discuss.
 

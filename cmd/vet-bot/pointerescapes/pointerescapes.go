@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	"github.com/github-vet/bots/cmd/vet-bot/callgraph"
+	"github.com/github-vet/bots/cmd/vet-bot/packid"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -20,7 +21,7 @@ var Analyzer = &analysis.Analyzer{
 	Doc:              "gathers a list of function signatures and their pointer arguments which definitely do not escape during the lifetime of the function",
 	Run:              run,
 	RunDespiteErrors: true,
-	Requires:         []*analysis.Analyzer{inspect.Analyzer, callgraph.Analyzer},
+	Requires:         []*analysis.Analyzer{inspect.Analyzer, packid.Analyzer, callgraph.Analyzer},
 	ResultType:       reflect.TypeOf((*Result)(nil)),
 }
 
@@ -153,13 +154,13 @@ func inspectSafeArgs(pass *analysis.Pass) safeArgMap {
 			safeArgs[n.Pos()] = parsePointerArgs(typed)
 		case *ast.AssignStmt:
 			// a pointer argument used on the RHS of an assign statement is marked unsafe.
-			outPos := outermostCallPos(stack)
+			outPos := outermostFuncDeclPos(stack)
 			if _, ok := safeArgs[outPos]; ok {
 				safeArgs.MarkUnsafe(outPos, typed.Rhs)
 			}
 		case *ast.CompositeLit:
 			// a pointer argument used inside a composite literal is marked unsafe.
-			outPos := outermostCallPos(stack)
+			outPos := outermostFuncDeclPos(stack)
 			if _, ok := safeArgs[outPos]; ok {
 				safeArgs.MarkUnsafe(outPos, typed.Elts)
 			}
@@ -169,9 +170,9 @@ func inspectSafeArgs(pass *analysis.Pass) safeArgMap {
 	return safeArgs
 }
 
-// outermostCallPos returns the source position of the outermost function call on the
+// outermostFuncDeclPos returns the source position of the outermost function declaration on the
 // provided stack.
-func outermostCallPos(stack []ast.Node) token.Pos {
+func outermostFuncDeclPos(stack []ast.Node) token.Pos {
 	for i := 0; i < len(stack); i++ {
 		if fdec, ok := stack[i].(*ast.FuncDecl); ok {
 			return fdec.Pos()

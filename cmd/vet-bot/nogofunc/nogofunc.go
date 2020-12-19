@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	"github.com/github-vet/bots/cmd/vet-bot/callgraph"
+	"github.com/github-vet/bots/cmd/vet-bot/packid"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -19,7 +20,7 @@ var Analyzer = &analysis.Analyzer{
 	Doc:              "gathers a list of function signatures whose invocations definitely do not start a goroutine",
 	Run:              run,
 	RunDespiteErrors: true,
-	Requires:         []*analysis.Analyzer{inspect.Analyzer, callgraph.Analyzer},
+	Requires:         []*analysis.Analyzer{inspect.Analyzer, packid.Analyzer, callgraph.Analyzer},
 	ResultType:       reflect.TypeOf((*Result)(nil)),
 }
 
