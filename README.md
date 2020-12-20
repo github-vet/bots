@@ -29,9 +29,7 @@ The goal of the [github-vet](https://github.com/github-vet) project is to motiva
 
 ## How Does It Work?
 
-vet-bot samples from a list of GitHub repositories hosting Go code, parses every `.go` file found, and runs it through [an augmented version of the loopclosure analysis](https://github.com/github-vet/vet-bot/blob/main/cmd/vet-bot/loopclosure/loopclosure.go) run as part of `go vet`. Any issues it finds are recorded to [a GitHub repository](https://github.com/github-vet/rangeloop-findings) for humans to analyze.
-
-The static analysis procedure uses only syntactic information produced by the Go parser. It detects instances of variables in a `for` loop which escape via use in a function whose execution is delayed via `go` or `defer`. The procedure is based on [the procedure used in `go vet`](https://github.com/golang/tools/blob/master/go/analysis/passes/loopclosure/loopclosure.go), except it does not rely on type-checking information (which is hard to obtain) and works with nested loops.
+vet-bot samples from a list of GitHub repositories hosting Go code, parses every `.go` file found, and runs it through several static analysis procedures tailored to the rangeloop capture problem. It detects instances of range-loop variables which it cannot prove to be handled safely. False-positives are permitted.
 
 ## How Can I Help?
 
@@ -47,4 +45,4 @@ TrackBot runs periodically. Each time it wakes up, it reads through every issue 
 
 Both VetBot and TrackBot respect the rate-limits on GitHub's API.
 
-For a more detailed overview, checkout the READMEs for TrackBot and VetBot.
+For more details, check out the READMEs for TrackBot and VetBot.
