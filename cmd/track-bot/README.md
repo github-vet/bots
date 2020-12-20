@@ -10,7 +10,7 @@ TrackBot periodically scans every issue in the repository, checking the issue re
 
 1. Assess Expert Opinion
 1. Assess Community Opinion
-1. Assess and Alert on Expert Disagreement
+1. Detect and Alert on Expert Disagreement
 1. Close Issues
 
 ### 1. Assess Expert Opinion
@@ -25,14 +25,14 @@ TrackBot maintains a list of the GitHub usernames of experts who are trusted to 
 
 TrackBot uses the reactions left by non-experts to update a community opinion. TrackBot keeps track of how frequently each community member has made an assessment that concurs with the assessment left by an expert. It uses this information to compute an overall reliability score, and sums this score over all users who have reacted to the issue. If the community score is high enough, a few things happen.
 
-1. If more than 80% of the community agrees on a single classification, a label is added to the issue to indicate the community opinion.
+1. If a baseline reliability threshold is met and more than 80% of the community votes (weighted by reliability) are assigned to a single classification, a label is added to the issue to indicate the community opinion.
 1. If no single classification receives more than 80% of the total community votes (weighted by reliability), a label is added to indicate the issue is confusing and may warrant higher scrutiny by an expert.
 1. If the community reliability score exceeds a high reliability threshold, the issue is labeled as 'reliable'.
 
 ### 3. Assess and Alert on Expert Disagreement
 
-TrackBot notices when experts leave conflicting opinions and takes action by leaving a comment to alert them to the issue using an `@` mention. TrackBot also labels the issue to indicate expert confusion.
+TrackBot notices when experts leave conflicting opinions and takes action by leaving a comment to alert them to the issue using an `@` mention. Experts are expected to discuss and resolve any disagreement. TrackBot also labels the issue to indicate expert confusion in this case.
 
 ### 4. Close Issues
 
-TrackBot also closes issues it finds which have the `test` or `vendored` label, and applies these labels if they are not already present.
+TrackBot also closes issues it finds which have the `test` or `vendored` label, and scans the file path to apply these labels if they are not already present.
