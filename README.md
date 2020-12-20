@@ -45,4 +45,4 @@ TrackBot runs periodically. Each time it wakes up, it reads through every issue 
 
 Both VetBot and TrackBot respect the rate-limits on GitHub's API.
 
-For more details, check out the READMEs for TrackBot and VetBot.
+For more details, check out the READMEs for [TrackBot](https://github.com/github-vet/bots/tree/main/cmd/track-bot) and [VetBot](https://github.com/github-vet/bots/tree/main/cmd/vet-bot).
