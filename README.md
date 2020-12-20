@@ -1,5 +1,7 @@
 # bots
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/github-vet/bots)](https://goreportcard.com/report/github.com/github-vet/bots)
+
 bots contains two bots, vetbot and trackbot.
 
 vetbot automates the analysis of large quantities of Golang code stored in GitHub repositories. It is a special-purpose bot built to gather a large suite of examples of the well-known [range loop capture error](https://github.com/golang/go/wiki/CommonMistakes#using-reference-to-loop-iterator-variable) found "in the wild". 
