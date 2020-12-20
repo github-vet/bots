@@ -29,7 +29,7 @@ type Result struct {
 	SyncSignatures map[callgraph.Signature]struct{}
 }
 
-type SignatureFacts struct {
+type signatureFacts struct {
 	callgraph.SignaturePos
 	StartsGoroutine bool
 }
@@ -42,9 +42,9 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		(*ast.GoStmt)(nil),
 	}
 
-	sigByPos := make(map[token.Pos]*SignatureFacts)
+	sigByPos := make(map[token.Pos]*signatureFacts)
 	for _, sig := range graph.Signatures {
-		sigByPos[sig.Pos] = &SignatureFacts{sig, false}
+		sigByPos[sig.Pos] = &signatureFacts{sig, false}
 	}
 
 	result := Result{}
@@ -68,7 +68,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 
 // findSyncSignatures finds a list of Signatures for functions which do not call goroutines or call functions which
 // call goroutines.
-func findSyncSignatures(sigs map[token.Pos]*SignatureFacts, graph *callgraph.CallGraph) map[callgraph.Signature]struct{} {
+func findSyncSignatures(sigs map[token.Pos]*signatureFacts, graph *callgraph.CallGraph) map[callgraph.Signature]struct{} {
 	var toCheck []callgraph.Signature
 	unsafe := make(map[callgraph.Signature]struct{})
 	for _, sig := range sigs {

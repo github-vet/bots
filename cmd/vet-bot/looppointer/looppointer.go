@@ -15,6 +15,7 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
+// Analyzer checks for pointers to enclosing loop variables; modified for sweeping GitHub
 var Analyzer = &analysis.Analyzer{
 	Name:             "looppointer",
 	Doc:              "checks for pointers to enclosing loop variables; modified for sweeping GitHub",
@@ -36,7 +37,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	}
 
 	inspect.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
-		id, rangeLoop, reason := search.Check(n, stack, pass)
+		id, rangeLoop, reason := search.check(n, stack, pass)
 		if id != nil {
 			pass.Report(analysis.Diagnostic{
 				Pos:     rangeLoop.Pos(),
@@ -53,19 +54,28 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	return nil, nil
 }
 
+// Searcher stores the set of range loops found in the source code, keyed by its
+// position in the repository.
 type Searcher struct {
 	Stats map[token.Pos]*ast.RangeStmt
 }
 
+// Reason describes why an instance is being reported.
 type Reason uint8
 
 const (
+	// ReasonNone indicates nothing is being reported.
 	ReasonNone Reason = iota
+	// ReasonPointerReassigned indicates a reference to a range loop variable was reassigned.
 	ReasonPointerReassigned
+	// ReasonCallMayWritePtr indicates some function call may store a reference to a range loop variable.
 	ReasonCallMayWritePtr
+	// ReasonCallMaybeAsync indicates some function call taking a reference to a range loop variable may start a Goroutine.
 	ReasonCallMaybeAsync
 )
 
+// Message returns a human-readable message, provided the name of the varaible and
+// its position in the source code.
 func (r Reason) Message(name string, pos token.Position) string {
 	switch r {
 	case ReasonPointerReassigned:
@@ -79,7 +89,7 @@ func (r Reason) Message(name string, pos token.Position) string {
 	}
 }
 
-func (s *Searcher) Check(n ast.Node, stack []ast.Node, pass *analysis.Pass) (*ast.Ident, *ast.RangeStmt, Reason) {
+func (s *Searcher) check(n ast.Node, stack []ast.Node, pass *analysis.Pass) (*ast.Ident, *ast.RangeStmt, Reason) {
 	switch typed := n.(type) {
 	case *ast.RangeStmt:
 		s.parseRangeStmt(typed)

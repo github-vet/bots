@@ -8,14 +8,15 @@ import (
 	"strconv"
 )
 
-const ExpertNumFields int = 2
+const expertNumFields int = 2
 
+// Expert describes a GitHub user marked as an 'expert' for the purpose of crowd sourcing.
 type Expert struct {
 	Username        string
 	AssessmentCount int
 }
 
-func ExpertFromCsvLine(line []string) (Expert, error) {
+func expertFromCsvLine(line []string) (Expert, error) {
 	assessCount, err := strconv.ParseInt(line[1], 10, 32)
 	if err != nil {
 		return Expert{}, err
@@ -26,13 +27,15 @@ func ExpertFromCsvLine(line []string) (Expert, error) {
 	}, nil
 }
 
-func CsvLineFromExpert(exp Expert) []string {
+func csvLineFromExpert(exp Expert) []string {
 	return []string{
 		exp.Username,
 		strconv.Itoa(exp.AssessmentCount),
 	}
 }
 
+// ReadExpertsFile opens the provided file and parses the contents into a map of
+// Experts, keyed by username.
 func ReadExpertsFile(path string) (map[string]*Expert, error) {
 	// TODO: mayhaps too much duplication
 	result := make(map[string]*Expert)
@@ -55,11 +58,11 @@ func ReadExpertsFile(path string) (map[string]*Expert, error) {
 			return nil, err
 		}
 		lineNum++
-		if len(record) != ExpertNumFields {
-			log.Printf("malformed line in issues list %s line %d, expected %d fields, found %d", path, lineNum, IssueNumFields, len(record))
+		if len(record) != expertNumFields {
+			log.Printf("malformed line in issues list %s line %d, expected %d fields, found %d", path, lineNum, issueNumFields, len(record))
 			continue
 		}
-		expert, err := ExpertFromCsvLine(record)
+		expert, err := expertFromCsvLine(record)
 		if err != nil {
 			log.Printf("malformed line in issues list %s line %d: %v", path, lineNum, err)
 		}
@@ -68,6 +71,8 @@ func ReadExpertsFile(path string) (map[string]*Expert, error) {
 	return result, nil
 }
 
+// WriteExpertsFile writes the provided list of experts to the provided path, truncating
+// whatever file may exist.
 func WriteExpertsFile(path string, experts map[string]*Expert) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE|os.O_TRUNC, 0666)
 	defer file.Close()
@@ -76,7 +81,7 @@ func WriteExpertsFile(path string, experts map[string]*Expert) error {
 	}
 	writer := csv.NewWriter(file)
 	for _, exp := range experts {
-		writer.Write(CsvLineFromExpert(*exp))
+		writer.Write(csvLineFromExpert(*exp))
 	}
 	writer.Flush()
 	return nil

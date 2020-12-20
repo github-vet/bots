@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// A modified version of the code found in the Golang standard library which handles nested loops.
+// Package loopclosure contains a modified version of the code found in the Golang standard library which handles nested loops.
 package loopclosure
 
 import (
@@ -14,14 +14,15 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 )
 
-const Doc = `This is an augmented version of the loopanalyzer found in the
+const doc = `This is an augmented version of the loopanalyzer found in the
 standard library. It handles nested loops and avoids relying on type-checking
 info -- that means a few more false positives, but also means not having to
-run the type-checker, which is a net-win.`
+run the type-checker, which is a net win.`
 
+// Analyzer provides the loopclosure analyzer.
 var Analyzer = &analysis.Analyzer{
 	Name:     "loopclosure-augmented",
-	Doc:      Doc,
+	Doc:      doc,
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 	Run:      run,
 }
@@ -38,19 +39,19 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	return nil, nil
 }
 
-type LoopVar struct {
+type loopVar struct {
 	ident *ast.Ident
 	body  *ast.RangeStmt
 }
 
-func inspectBody(n ast.Node, outerVars []LoopVar, pass *analysis.Pass) {
-	loopVars := make([]LoopVar, len(outerVars))
+func inspectBody(n ast.Node, outerVars []loopVar, pass *analysis.Pass) {
+	loopVars := make([]loopVar, len(outerVars))
 	copy(loopVars, outerVars)
 
 	// Find the variables updated by the loop statement.
 	addVar := func(expr ast.Expr, body *ast.RangeStmt) {
 		if id, ok := expr.(*ast.Ident); ok {
-			loopVars = append(loopVars, LoopVar{
+			loopVars = append(loopVars, loopVar{
 				ident: id,
 				body:  body,
 			})
