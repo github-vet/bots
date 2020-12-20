@@ -31,7 +31,7 @@ TrackBot uses the reactions left by non-experts to update a community opinion. T
 
 ### 3. Assess and Alert on Expert Disagreement
 
-TrackBot notices when experts leave conflicting opinions and takes action by leaving a comment to alert them to the issue using an `@` mention. Experts are expected to discuss and resolve any disagreement. TrackBot also labels the issue to indicate expert confusion in this case.
+TrackBot notices when experts leave conflicting opinions and takes action by leaving a comment to alert them to the issue using an `@` mention. Experts are expected to discuss and resolve any disagreement. TrackBot also labels the issue to indicate expert confusion in this case. Any confusion is not resolved until all experts can agree.
 
 ### 4. Close Issues
 
