@@ -205,7 +205,7 @@ func UpdateIssueReactions(bot *TrackBot, record *Issue, issue github.Issue, allR
 	}
 }
 
-// ConfusionThreshold marks the fraction of total score applied to an isssue needed before the community is considered 'confused'.
+// ConfusionThreshold marks the fraction of total score applied to an issue needed before the community is considered 'confused'.
 const ConfusionThreshold = 0.8
 
 // CommunityScoreThreshold marks the minimum reliability score needed on an issue before it will have a community label applied.
