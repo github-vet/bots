@@ -2,7 +2,8 @@
 
 bots contains two bots, vetbot and trackbot.
 
-vetbot automates the analysis of large quantities of Golang code stored in GitHub repositories. It is a special-purpose bot built to gather a large suite of examples of the well-known [range loop capture error](https://github.com/golang/go/wiki/CommonMistakes#using-reference-to-loop-iterator-variable) found "in the wild".
+vetbot automates the analysis of large quantities of Golang code stored in GitHub repositories. It is a special-purpose bot built to gather a large suite of examples of the well-known [range loop capture error](https://github.com/golang/go/wiki/CommonMistakes#using-reference-to-loop-iterator-variable) found "in the wild". 
+trackbot tracks community contributions to issues raised by vetbot.
 
 Range-loop capture is the reason this code prints `4, 4, 4, 4,` instead of what you might expect.
 
@@ -15,7 +16,6 @@ for _, x := range xs {
 }
 ```
 
-trackbot tracks community contributions to issues raised by vetbot.
 
 But why build bots?
 
