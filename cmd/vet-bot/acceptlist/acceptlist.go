@@ -12,6 +12,8 @@ import (
 // If the function is nil, no accept list is set.
 var GlobalAcceptList *AcceptList
 
+// AcceptList stores a list of functions from third-party packages which are known not to start
+// any Goroutines or store a reference to any of their pointer arguments.
 type AcceptList struct {
 	Accept map[string]map[string]struct{}
 }
@@ -67,4 +69,14 @@ func (al AcceptList) IgnoreCall(pr *packid.PackageResolver, callExpr *ast.CallEx
 	}
 	_, ok = acceptFuncs[fun.Sel.Name]
 	return ok
+}
+
+// LoadAcceptList loads the accept list from the provided file path. If any errors
+// occur, they are returned.
+func LoadAcceptList(path string) error {
+	acceptList, err := AcceptListFromFile(path)
+	if err == nil {
+		GlobalAcceptList = &acceptList
+	}
+	return err
 }

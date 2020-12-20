@@ -8,8 +8,9 @@ import (
 	"strconv"
 )
 
-const GopherNumFields int = 3
+const gopherNumFields int = 3
 
+// Gopher represents a GitHub user not marked as an 'expert' for the purpose of crowdsourcing.
 type Gopher struct {
 	Username      string
 	Disagreements int
@@ -32,7 +33,7 @@ func Score(gophers map[string]*Gopher, name string) float32 {
 	return AnonymousScore
 }
 
-func GopherFromCsvLine(line []string) (Gopher, error) {
+func gopherFromCsvLine(line []string) (Gopher, error) {
 	disagreeCount, err := strconv.ParseInt(line[1], 10, 32)
 	if err != nil {
 		return Gopher{}, err
@@ -48,7 +49,7 @@ func GopherFromCsvLine(line []string) (Gopher, error) {
 	}, nil
 }
 
-func CsvLineFromGopher(exp Gopher) []string {
+func csvLineFromGopher(exp Gopher) []string {
 	return []string{
 		exp.Username,
 		strconv.Itoa(exp.Disagreements),
@@ -56,6 +57,8 @@ func CsvLineFromGopher(exp Gopher) []string {
 	}
 }
 
+// ReadGophersFile opens the file at the provided path and reads it into a
+// map of Gophers, keyed by username.
 func ReadGophersFile(path string) (map[string]*Gopher, error) {
 	result := make(map[string]*Gopher)
 	if _, err := os.Stat(path); err != nil {
@@ -77,11 +80,11 @@ func ReadGophersFile(path string) (map[string]*Gopher, error) {
 			return nil, err
 		}
 		lineNum++
-		if len(record) != GopherNumFields {
-			log.Printf("malformed line in issues list %s line %d, expected %d fields, found %d", path, lineNum, IssueNumFields, len(record))
+		if len(record) != gopherNumFields {
+			log.Printf("malformed line in issues list %s line %d, expected %d fields, found %d", path, lineNum, issueNumFields, len(record))
 			continue
 		}
-		gopher, err := GopherFromCsvLine(record)
+		gopher, err := gopherFromCsvLine(record)
 		if err != nil {
 			log.Printf("malformed line in issues list %s line %d: %v", path, lineNum, err)
 		}
@@ -90,6 +93,8 @@ func ReadGophersFile(path string) (map[string]*Gopher, error) {
 	return result, nil
 }
 
+// WriteGophersFile writes the provided map of gophers to the given file, truncating
+// its contents.
 func WriteGophersFile(path string, gophers map[string]*Gopher) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE|os.O_TRUNC, 0666)
 	defer file.Close()
@@ -98,7 +103,7 @@ func WriteGophersFile(path string, gophers map[string]*Gopher) error {
 	}
 	writer := csv.NewWriter(file)
 	for _, goph := range gophers {
-		writer.Write(CsvLineFromGopher(*goph))
+		writer.Write(csvLineFromGopher(*goph))
 	}
 	writer.Flush()
 	return nil

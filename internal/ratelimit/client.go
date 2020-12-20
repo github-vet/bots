@@ -26,7 +26,7 @@ type Client struct {
 	throttle <-chan struct{}
 }
 
-const MaxAPIPerSecond = 25
+const maxAPIPerSecond = 25
 
 // NewClient constructs a new client using the provided arguments.
 func NewClient(ctx context.Context, client *github.Client) (Client, error) {
@@ -36,7 +36,7 @@ func NewClient(ctx context.Context, client *github.Client) (Client, error) {
 	return Client{
 		ctx:      ctx,
 		client:   client,
-		throttle: NewThrottle(MaxAPIPerSecond),
+		throttle: NewThrottle(maxAPIPerSecond),
 	}, nil
 }
 

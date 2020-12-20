@@ -48,7 +48,7 @@ func main() {
 	log.Printf("issues will be written to %s", opts.IssuesFile)
 
 	if opts.AcceptListPath != "" {
-		err := LoadAcceptList(opts.AcceptListPath)
+		err := acceptlist.LoadAcceptList(opts.AcceptListPath)
 		if err != nil {
 			log.Fatalf("cannot read accept list: %v", err)
 		}
@@ -123,12 +123,4 @@ func NewVetBot(token string, opts opts) VetBot {
 		client: &limited,
 		opts:   opts,
 	}
-}
-
-func LoadAcceptList(path string) error {
-	acceptList, err := acceptlist.AcceptListFromFile(path)
-	if err == nil {
-		acceptlist.GlobalAcceptList = &acceptList
-	}
-	return err
 }

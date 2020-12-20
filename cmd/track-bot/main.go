@@ -129,7 +129,7 @@ func ProcessIssuePage(bot *TrackBot, issuePage []*github.Issue) {
 		if record, ok := bot.issues[num]; ok {
 			UpdateIssueReactions(bot, record, *issue, allReactions)
 		} else {
-			record := IssueFromGithub(issue)
+			record := issueFromGithub(issue)
 			UpdateIssueReactions(bot, &record, *issue, allReactions)
 			bot.issues[num] = &record
 		}
@@ -441,6 +441,7 @@ func ThrottleExperts(bot *TrackBot, record *Issue, expertsToThrottle []string, e
 	}
 }
 
+// TrackBot stores all relevant state needed to run the TrackBot.
 type TrackBot struct {
 	client         *ratelimit.Client
 	wg             sync.WaitGroup
@@ -453,6 +454,9 @@ type TrackBot struct {
 	experts        map[string]*Expert
 }
 
+// DoAsync runs the provided function in its own goroutine, using the TrackBot's
+// internal sync.WaitGroup to ensure the function is allowed to complete before
+// the TrackBot is terminated.
 func (b *TrackBot) DoAsync(f func()) {
 	b.wg.Add(1)
 	go func(f func()) {

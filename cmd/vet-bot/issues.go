@@ -198,6 +198,7 @@ func Labels(result VetResult) []string {
 	return labels
 }
 
+// State returns the desired status of a VetResult on issue creation.
 func State(result VetResult) string {
 	if strings.HasSuffix(result.FilePath, "_test.go") {
 		return "closed"

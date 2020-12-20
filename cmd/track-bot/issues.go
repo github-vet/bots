@@ -10,7 +10,7 @@ import (
 	"github.com/google/go-github/v32/github"
 )
 
-const IssueNumFields int = 3
+const issueNumFields int = 3
 
 // Issue is a local record of an issue being tracked by this bot.
 type Issue struct {
@@ -27,6 +27,8 @@ func (i Issue) HasExpertAssessment() bool {
 	return i.ExpertAssessment != ""
 }
 
+// WriteIssuesFile writes the map of issues to the provided file, truncating its
+// contents in the process.
 func WriteIssuesFile(path string, issues map[int]*Issue) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE|os.O_TRUNC, 0666)
 	defer file.Close()
@@ -35,12 +37,13 @@ func WriteIssuesFile(path string, issues map[int]*Issue) error {
 	}
 	writer := csv.NewWriter(file)
 	for _, iss := range issues {
-		writer.Write(CsvLineFromIssue(*iss))
+		writer.Write(csvLineFromIssue(*iss))
 	}
 	writer.Flush()
 	return nil
 }
 
+// ReadIssuesFile reads a map of issues keyed by issue ID from the provided file.
 func ReadIssuesFile(path string) (map[int]*Issue, error) {
 	result := make(map[int]*Issue)
 	if _, err := os.Stat(path); err != nil {
@@ -62,11 +65,11 @@ func ReadIssuesFile(path string) (map[int]*Issue, error) {
 			return nil, err
 		}
 		lineNum++
-		if len(record) != IssueNumFields {
-			log.Printf("malformed line in issues list %s line %d, expected %d fields, found %d", path, lineNum, IssueNumFields, len(record))
+		if len(record) != issueNumFields {
+			log.Printf("malformed line in issues list %s line %d, expected %d fields, found %d", path, lineNum, issueNumFields, len(record))
 			continue
 		}
-		issue, err := IssueFromCsvLine(record)
+		issue, err := issueFromCsvLine(record)
 		if err != nil {
 			log.Printf("malformed line in issues list %s line %d: %v", path, lineNum, err)
 		}
@@ -75,14 +78,14 @@ func ReadIssuesFile(path string) (map[int]*Issue, error) {
 	return result, nil
 }
 
-func IssueFromGithub(iss *github.Issue) Issue {
+func issueFromGithub(iss *github.Issue) Issue {
 	return Issue{
 		Number:       iss.GetNumber(),
 		DisagreeFlag: false,
 	}
 }
 
-func IssueFromCsvLine(line []string) (Issue, error) {
+func issueFromCsvLine(line []string) (Issue, error) {
 	id, err := strconv.ParseInt(line[0], 10, 32)
 	if err != nil {
 		return Issue{}, err
@@ -98,7 +101,7 @@ func IssueFromCsvLine(line []string) (Issue, error) {
 	}, nil
 }
 
-func CsvLineFromIssue(iss Issue) []string {
+func csvLineFromIssue(iss Issue) []string {
 	return []string{
 		strconv.Itoa(iss.Number),
 		iss.ExpertAssessment,
