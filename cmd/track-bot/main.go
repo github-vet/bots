@@ -239,7 +239,7 @@ func UpdateCommunityAssessment(bot *TrackBot, record *Issue, issue *github.Issue
 			maxOutcome = outcome
 		}
 	}
-	log.Printf("updating assessment for issue %d; maxOutcome = %s, maxShare = %f, totalScore = %f", record.Number, maxOutcome, maxShare, totalScore)
+	log.Printf("updating assessment for issue %d; scores = %v", record.Number, scores)
 	if maxOutcome == "" {
 		return
 	}
