@@ -231,7 +231,7 @@ func UpdateCommunityAssessment(bot *TrackBot, record *Issue, issue *github.Issue
 	maxScore := float32(0)
 	var maxOutcome string
 	for outcome, score := range scores {
-		if score > CommunityScoreThreshold && score > maxScore {
+		if score >= CommunityScoreThreshold && score > maxScore {
 			maxScore = score
 			maxOutcome = outcome
 		}
