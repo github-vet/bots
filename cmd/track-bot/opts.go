@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -16,6 +16,7 @@ type opts struct {
 	GophersFile   string
 	Owner         string
 	Repo          string
+	DryRun        bool
 	PollFrequency time.Duration
 }
 
@@ -45,6 +46,15 @@ var optSchemas []OptSchema = []OptSchema{
 		func(o *opts, value string) error { o.ExpertsFile = value; return nil }},
 	{"GOPHERS_FILE", "gophers", "path to gophers CSV file", "gophers.csv", false,
 		func(o *opts, value string) error { o.GophersFile = value; return nil }},
+	{"DRY_RUN", "dry-run", "set to make all API calls read-only", "false", false,
+		func(o *opts, value string) error {
+			boolValue, err := strconv.ParseBool(value)
+			if err != nil {
+				return fmt.Errorf("could not parse dry-run flag %s as boolean", value)
+			}
+			o.DryRun = boolValue
+			return nil
+		}},
 	{"GITHUB_REPO", "repo", "owner/repository of GitHub repo where issues should be tracked", "kalexmills/rangeloop-test-repo", false,
 		func(o *opts, value string) error {
 			repoToks := strings.Split(value, "/")
@@ -59,10 +69,10 @@ var optSchemas []OptSchema = []OptSchema{
 		func(o *opts, value string) error {
 			freq, err := time.ParseDuration(value)
 			if err != nil {
-				log.Fatalf("could not parse poll frequency '%s' as a valid duration", value)
+				return fmt.Errorf("could not parse poll frequency '%s' as a valid duration", value)
 			}
 			if freq < 0 {
-				log.Fatalln("poll frequency must be a positive duration")
+				return fmt.Errorf("poll frequency must be a positive duration")
 			}
 			o.PollFrequency = freq
 			return nil

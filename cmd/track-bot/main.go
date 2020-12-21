@@ -139,7 +139,7 @@ func ProcessIssuePage(bot *TrackBot, issuePage []*github.Issue) {
 // MaybeCloseIssueByLabel closes the issue if it does not need to be considered. Trackbot does this since
 // vetbot has no way to close an issue on its creation (due to apparent limitations in the GitHub API).
 func MaybeCloseIssueByLabel(bot *TrackBot, issue github.Issue) {
-	if !HasLabel(&issue, "test") && !HasLabel(&issue, "vendored") {
+	if bot.skipWrites || (!HasLabel(&issue, "test") && !HasLabel(&issue, "vendored")) {
 		return
 	}
 	bot.DoAsync(func() {
@@ -289,6 +289,9 @@ func HandleExpertAgreement(bot *TrackBot, record *Issue, issue *github.Issue, re
 
 // MaybeCloseIssue closes the issue if the number of experts who have provided their assessment exceeds the threshold.
 func MaybeCloseIssue(bot *TrackBot, record *Issue, expertCount int) {
+	if bot.skipWrites {
+		return
+	}
 	if expertCount < MinExpertsNeededToClose {
 		return
 	}
@@ -315,6 +318,9 @@ func HasLabel(issue *github.Issue, label string) bool {
 
 // AddLabel adds the provided label to the issue, if it is present.
 func AddLabel(bot *TrackBot, issue *github.Issue, label string) {
+	if bot.skipWrites {
+		return
+	}
 	if HasLabel(issue, label) {
 		return // avoid API call
 	}
@@ -327,6 +333,9 @@ func AddLabel(bot *TrackBot, issue *github.Issue, label string) {
 
 // RemoveLabel removes the provided label from the issue, if it is present.
 func RemoveLabel(bot *TrackBot, issue *github.Issue, label string) {
+	if bot.skipWrites {
+		return
+	}
 	if !HasLabel(issue, label) {
 		return // avoid API call
 	}
@@ -339,6 +348,9 @@ func RemoveLabel(bot *TrackBot, issue *github.Issue, label string) {
 
 // SetExpertLabel adds or overwrites the expert label associated with the provided assessment.
 func SetExpertLabel(bot *TrackBot, issue *github.Issue, assessment string) {
+	if bot.skipWrites {
+		return
+	}
 	newLabels, changed := modifyLabels(issue.Labels, "experts", assessment)
 	if !changed {
 		return // avoid extra API calls
@@ -352,6 +364,9 @@ func SetExpertLabel(bot *TrackBot, issue *github.Issue, assessment string) {
 
 // SetCommunityLabel adds or overwrites the community label associated with the provided assessment.
 func SetCommunityLabel(bot *TrackBot, issue *github.Issue, assessment string) {
+	if bot.skipWrites {
+		return
+	}
 	newLabels, changed := modifyLabels(issue.Labels, "community", assessment)
 	if !changed {
 		return // avoid extra API calls
@@ -433,6 +448,9 @@ func HandleExpertDisagreement(bot *TrackBot, record *Issue, issue *github.Issue,
 // ThrottleExperts posts a comment on the issue mentioning the experts to draw attention to their disagreement and start a
 // transparent conversation.
 func ThrottleExperts(bot *TrackBot, record *Issue, expertsToThrottle []string, expertAssessments map[string]int) {
+	if bot.skipWrites {
+		return
+	}
 	var b strings.Builder
 	err := parsed.Execute(&b, DisagreementData{
 		Usernames:  expertsToThrottle,
@@ -463,6 +481,7 @@ type TrackBot struct {
 	gophers        map[string]*Gopher
 	issues         map[int]*Issue
 	experts        map[string]*Expert
+	skipWrites     bool // whether to avoid writes -- useful for debugging.
 }
 
 // DoAsync runs the provided function in its own goroutine, using the TrackBot's
@@ -503,5 +522,6 @@ func NewTrackBot(opts opts) (TrackBot, error) {
 		experts:        experts,
 		owner:          opts.Owner,
 		repo:           opts.Repo,
+		skipWrites:     opts.DryRun,
 	}, nil
 }
