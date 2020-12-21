@@ -225,28 +225,33 @@ func UpdateCommunityAssessment(bot *TrackBot, record *Issue, issue *github.Issue
 	}
 	totalScore := float32(0)
 	for _, score := range scores {
-		totalScore += score
+		if score >= CommunityScoreThreshold { // a valid score meets or exceeds the CommunityScoreThreshold
+			totalScore += score
+		}
 	}
-	// find the outomce with the highest score.
-	maxScore := float32(0)
+	// find the outcome with the highest share of valid scores
+	maxShare := float32(0)
 	var maxOutcome string
 	for outcome, score := range scores {
-		if score >= CommunityScoreThreshold && score > maxScore {
-			maxScore = score
+		share := score / totalScore
+		if score >= CommunityScoreThreshold && share > maxShare {
+			maxShare = share
 			maxOutcome = outcome
 		}
 	}
-	if maxOutcome != "" {
-		if maxScore < ConfusionThreshold {
-			bot.DoAsync(func() { SetCommunityLabel(bot, issue, "confused") })
-		} else {
-			bot.DoAsync(func() { SetCommunityLabel(bot, issue, maxOutcome) })
-			if maxScore > HighCommunityScoreThreshold {
-				bot.DoAsync(func() { AddLabel(bot, issue, "reliable") })
-			} else if HasLabel(issue, "reliable") {
-				bot.DoAsync(func() { RemoveLabel(bot, issue, "reliable") })
-			}
-		}
+	log.Printf("updating assessment for issue %d; maxOutcome = %s, maxShare = %f, totalScore = %f", record.Number, maxOutcome, maxShare, totalScore)
+	if maxOutcome == "" {
+		return
+	}
+	if maxShare < ConfusionThreshold {
+		bot.DoAsync(func() { SetCommunityLabel(bot, issue, "confused") })
+		return
+	}
+	bot.DoAsync(func() { SetCommunityLabel(bot, issue, maxOutcome) })
+	if maxShare > HighCommunityScoreThreshold {
+		bot.DoAsync(func() { AddLabel(bot, issue, "reliable") })
+	} else if HasLabel(issue, "reliable") {
+		bot.DoAsync(func() { RemoveLabel(bot, issue, "reliable") })
 	}
 }
 
@@ -295,6 +300,7 @@ func MaybeCloseIssue(bot *TrackBot, record *Issue, expertCount int) {
 	if err != nil {
 		log.Printf("could not close issue %d after %d experts agreed", record.Number, expertCount)
 	}
+	log.Printf("closed issue %d with %d agreeing experts", record.Number, expertCount)
 }
 
 // HasLabel returns true if the issue has a matching label.
@@ -316,6 +322,7 @@ func AddLabel(bot *TrackBot, issue *github.Issue, label string) {
 	if err != nil {
 		log.Printf("could not label issue %d with label %s: %v", issue.GetNumber(), label, err)
 	}
+	log.Printf("added label %s to issue %d", label, issue.GetNumber())
 }
 
 // RemoveLabel removes the provided label from the issue, if it is present.
@@ -327,6 +334,7 @@ func RemoveLabel(bot *TrackBot, issue *github.Issue, label string) {
 	if err != nil {
 		log.Printf("could not remove label %s from issue %d: %v", label, issue.GetNumber(), err)
 	}
+	log.Printf("removed label %s from issue %d", label, issue.GetNumber())
 }
 
 // SetExpertLabel adds or overwrites the expert label associated with the provided assessment.
@@ -339,6 +347,7 @@ func SetExpertLabel(bot *TrackBot, issue *github.Issue, assessment string) {
 	if err != nil {
 		log.Printf("could not label issue %d with expert assessment %s", issue.GetNumber(), assessment)
 	}
+	log.Printf("labeled issue %d with expert assessment %s; newLabels = %v", issue.GetNumber(), assessment, newLabels)
 }
 
 // SetCommunityLabel adds or overwrites the community label associated with the provided assessment.
@@ -351,6 +360,7 @@ func SetCommunityLabel(bot *TrackBot, issue *github.Issue, assessment string) {
 	if err != nil {
 		log.Printf("could not label issue %d with community assessment %s", issue.GetNumber(), assessment)
 	}
+	log.Printf("labeled issue %d with community assessment %s; new labels = %v", issue.GetNumber(), assessment, newLabels)
 }
 
 // modifyLabels returns the modified set of labels, and a flag indicating whether any labels were changed.
@@ -439,6 +449,7 @@ func ThrottleExperts(bot *TrackBot, record *Issue, expertsToThrottle []string, e
 	if err != nil {
 		log.Printf("could not post issue disagreement comment: %v", err)
 	}
+	log.Printf("throttled experts on issue %d; alerted %v", record.Number, expertsToThrottle)
 }
 
 // TrackBot stores all relevant state needed to run the TrackBot.
