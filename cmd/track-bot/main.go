@@ -209,10 +209,10 @@ func UpdateIssueReactions(bot *TrackBot, record *Issue, issue github.Issue, allR
 const ConfusionThreshold = 0.8
 
 // CommunityScoreThreshold marks the minimum reliability score needed on an issue before it will have a community label applied.
-const CommunityScoreThreshold = 1.0
+const CommunityScoreThreshold = 0.5
 
 // HighCommunityScoreThreshold marks the threshold needed before the 'reliable' label is applied.
-const HighCommunityScoreThreshold = 5.0
+const HighCommunityScoreThreshold = 2.5
 
 // UpdateCommunityAssessment updates the overall community assessment based on the reliability of all the users involved.
 func UpdateCommunityAssessment(bot *TrackBot, record *Issue, issue *github.Issue, reactions []*github.Reaction) {

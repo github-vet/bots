@@ -22,7 +22,7 @@ const AnonymousScore float32 = 0.25
 
 // Score computes a value in (0, 1) reflecting how frequently this Gopher has agreed with expert opinion.
 func (u Gopher) Score() float32 {
-	return float32(1+u.Assessments-u.Disagreements) / float32(1+u.Assessments)
+	return 1 - float32(1+u.Disagreements)/float32(1+u.Assessments)
 }
 
 // Score retrieves the score of the Gopher from the map. Unknown gophers receive the default score.
