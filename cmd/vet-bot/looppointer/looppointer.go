@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"strings"
 
 	"github.com/github-vet/bots/cmd/vet-bot/acceptlist"
 	"github.com/github-vet/bots/cmd/vet-bot/callgraph"
@@ -228,12 +229,44 @@ func reportAsyncSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, reason 
 	startsGoroutine := pass.ResultOf[nogofunc.Analyzer].(*nogofunc.Result).ContainsGoStmt
 	cg := pass.ResultOf[callgraph.Analyzer].(*callgraph.Result).ApproxCallGraph
 	sig := callgraph.SignatureFromCallExpr(call)
+	var paths []string
 	cg.CallGraphBFSWithStack(sig, func(sig callgraph.Signature, stack []callgraph.Signature) {
 		if _, ok := startsGoroutine[sig]; ok {
-			fmt.Println(stack)
+			// TODO: make this better by associating the position of the declarations with each signature.
+			paths = append(paths, writePath(stack))
 		}
 	})
-	reportBasic(pass, rangeLoop, reason, call, id)
+	pass.Report(analysis.Diagnostic{
+		Pos:     rangeLoop.Pos(),
+		End:     rangeLoop.End(),
+		Message: reason.Message(id.Name, pass.Fset.Position(id.Pos())),
+
+		Related: []analysis.RelatedInformation{
+			{Message: pass.Fset.File(call.Pos()).Name()},
+			{Message: reportPaths(paths)},
+		},
+	})
+	fmt.Println(reportPaths(paths))
+}
+
+func writePath(signatures []callgraph.Signature) string {
+	var sb strings.Builder
+	for i, sig := range signatures {
+		fmt.Fprintf(&sb, "(%s, %d)", sig.Name, sig.Arity)
+		if i != len(signatures)-1 {
+			sb.WriteString(" -> ")
+		}
+	}
+	return sb.String()
+}
+
+func reportPaths(paths []string) string {
+	var sb strings.Builder
+	sb.WriteString("The following paths through the callgraph could lead to a goroutine:\n")
+	for _, path := range paths {
+		fmt.Fprintf(&sb, "\t%v\n", path)
+	}
+	return sb.String()
 }
 
 // TODO: remove this function and make it more specific....
@@ -242,6 +275,7 @@ func reportBasic(pass *analysis.Pass, rangeLoop *ast.RangeStmt, reason Reason, n
 		Pos:     rangeLoop.Pos(),
 		End:     rangeLoop.End(),
 		Message: reason.Message(id.Name, pass.Fset.Position(id.Pos())),
+
 		Related: []analysis.RelatedInformation{
 			{Message: pass.Fset.File(n.Pos()).Name()},
 		},

@@ -39,6 +39,7 @@ type VetResult struct {
 	Start        token.Position
 	End          token.Position
 	Message      string
+	ExtraInfo    string
 }
 
 // Permalink returns the GitHub permalink which refers to the snippet of code retrieved by the VetResult.
@@ -202,15 +203,20 @@ func ReportFinding(ir *IssueReporter, fset *token.FileSet, rootCommitID string, 
 				return
 			}
 			filename := d.Related[0].Message
+			var extraInfo string
+			if len(d.Related) >= 2 {
+				extraInfo = d.Related[1].Message
+			}
 			// split off into a separate thread so any API call to create the issue doesn't block the remaining analysis.
 			ir.ReportVetResult(VetResult{
 				Repository:   repo,
-				FilePath:     filename,
+				FilePath:     fset.File(d.Pos).Name(),
 				RootCommitID: rootCommitID,
 				FileContents: contents[filename],
 				Start:        fset.Position(d.Pos),
 				End:          fset.Position(d.End),
 				Message:      d.Message,
+				ExtraInfo:    extraInfo,
 			})
 		}
 	}
