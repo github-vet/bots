@@ -22,4 +22,21 @@ data:
         - Sscan
         - Sscanf
         - Sscanln
+      log:
+        - Fatal
+        - Fatalf
+        - Fatalln
+        - Panic
+        - Panicf
+        - Panicln
+        - Printf
+        - Println
+      http:
+        - NotFound
+        - ProxyFromEnvironment
+        - Redirect
+        - ServeContent
+        - ServeFile
+        - SetCookie
+        - ProxyURL
 
