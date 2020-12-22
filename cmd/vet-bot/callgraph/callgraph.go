@@ -67,22 +67,32 @@ func (cg *CallGraph) CalledByGraphBFS(roots []Signature, visit func(sig Signatur
 	}
 }
 
-func (cg *CallGraph) CallGraphBFS(root Signature, visit func(sig Signature, stack []Signature)) error {
+// CallGraphBFSWithStack performs a breadth-first search of the callgraph, starting from the provided root node.
+// The provided visit function is called once for every node visited during the search. Each node in the graph is
+// visited at most once.
+func (cg *CallGraph) CallGraphBFSWithStack(root Signature, visit func(sig Signature, stack []Signature)) error {
 	rootID, ok := cg.signatureToId[root]
 	if !ok {
-		return fmt.Errorf("signature %v does not appear in callgraph", root)
+		return fmt.Errorf("requested root signature %v does not appear in callgraph", root)
 	}
-	frontier := make([]int, 0, len(cg.callGraph))
-	frontier = append(frontier, rootID)
+
+	type frontierNode struct {
+		id    int
+		stack []Signature
+	}
+	frontier := make([]frontierNode, 0, len(cg.callGraph))
+	frontier = append(frontier, frontierNode{rootID, []Signature{root}})
+
 	visited := make([]bool, len(cg.signatures))
 	for len(frontier) > 0 {
 		curr := frontier[0]
 		frontier = frontier[1:]
-		visited[curr] = true
+		visited[curr.id] = true
 
-		for _, child := range cg.callGraph[curr] {
-			if !visited[child] {
-				frontier = append(frontier, child)
+		visit(cg.signatures[curr.id], curr.stack)
+		for _, childID := range cg.callGraph[curr.id] {
+			if !visited[childID] {
+				frontier = append(frontier, frontierNode{childID, append(curr.stack, cg.signatures[childID])})
 			}
 		}
 	}

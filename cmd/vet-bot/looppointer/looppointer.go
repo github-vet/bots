@@ -48,7 +48,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 				},
 			})
 		}
-		return reason == ReasonNone
+		return reason == ReasonNone // TODO: don't stop on first hit
 	})
 
 	return nil, nil
