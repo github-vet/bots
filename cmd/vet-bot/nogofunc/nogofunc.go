@@ -24,9 +24,12 @@ var Analyzer = &analysis.Analyzer{
 	ResultType:       reflect.TypeOf((*Result)(nil)),
 }
 
-// Result is a set of signatures which are guaranteed not to start any goroutines.
+// Result is the result of the nogofunc analyzer.
 type Result struct {
+	// SyncSignatures is a set of signature which are guaranteed not to start any goroutines.
 	SyncSignatures map[callgraph.Signature]struct{}
+	// ContainsGoStmt is a set of signatures whose declarations contain a go statement.
+	ContainsGoStmt map[callgraph.Signature]struct{}
 }
 
 type signatureFacts struct {
@@ -62,17 +65,19 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		return true
 	})
 
-	result.SyncSignatures = findSyncSignatures(sigByPos, graph.ApproxCallGraph)
+	result.ContainsGoStmt, result.SyncSignatures = findSyncSignatures(sigByPos, graph.ApproxCallGraph)
 	return &result, nil
 }
 
 // findSyncSignatures finds a list of Signatures for functions which do not call goroutines or call functions which
 // call goroutines.
-func findSyncSignatures(sigs map[token.Pos]*signatureFacts, graph *callgraph.CallGraph) map[callgraph.Signature]struct{} {
+func findSyncSignatures(sigs map[token.Pos]*signatureFacts, graph *callgraph.CallGraph) (map[callgraph.Signature]struct{}, map[callgraph.Signature]struct{}) {
 	var toCheck []callgraph.Signature
+	startsGoroutine := make(map[callgraph.Signature]struct{})
 	unsafe := make(map[callgraph.Signature]struct{})
 	for _, sig := range sigs {
 		if sig.StartsGoroutine {
+			startsGoroutine[sig.Signature] = struct{}{}
 			unsafe[sig.Signature] = struct{}{}
 		} else {
 			toCheck = append(toCheck, sig.Signature)
@@ -88,13 +93,13 @@ func findSyncSignatures(sigs map[token.Pos]*signatureFacts, graph *callgraph.Cal
 		unsafe[sig] = struct{}{}
 	})
 	// remove all unsafe signatures from the list of results
-	result := make(map[callgraph.Signature]struct{})
+	syncSignatures := make(map[callgraph.Signature]struct{})
 	for _, sig := range toCheck {
 		if _, ok := unsafe[sig]; !ok {
-			result[sig] = struct{}{}
+			syncSignatures[sig] = struct{}{}
 		}
 	}
-	return result
+	return startsGoroutine, syncSignatures
 }
 
 func outermostFuncDecl(stack []ast.Node) *ast.FuncDecl {

@@ -1,5 +1,7 @@
 package callgraph
 
+import "fmt"
+
 // CallGraph represents an approximate call-graph, relying only on the name and arity of each function.
 // A call-graph has a node for each function, and edges between two nodes a and b if function a calls
 // function b. The call-graph this package computes is approximate in the sense that two functions with the same
@@ -51,18 +53,50 @@ func (cg *CallGraph) CalledByGraphBFS(roots []Signature, visit func(sig Signatur
 	}
 	frontier := make([]int, 0, len(cg.calledByGraph))
 	frontier = append(frontier, rootIDs...)
-	visited := make(map[int]struct{}, len(cg.calledByGraph))
+	visited := make([]bool, len(cg.signatures))
 	for len(frontier) > 0 {
 		curr := frontier[0]
 		frontier = frontier[1:]
-		visited[curr] = struct{}{}
+		visited[curr] = true
 		visit(cg.signatures[curr])
 		for _, child := range cg.calledByGraph[curr] {
-			if _, ok := visited[child]; !ok {
+			if !visited[child] {
 				frontier = append(frontier, child)
 			}
 		}
 	}
+}
+
+// CallGraphBFSWithStack performs a breadth-first search of the callgraph, starting from the provided root node.
+// The provided visit function is called once for every node visited during the search. Each node in the graph is
+// visited at most once.
+func (cg *CallGraph) CallGraphBFSWithStack(root Signature, visit func(sig Signature, stack []Signature)) error {
+	rootID, ok := cg.signatureToId[root]
+	if !ok {
+		return fmt.Errorf("requested root signature %v does not appear in callgraph", root)
+	}
+
+	type frontierNode struct {
+		id    int
+		stack []Signature
+	}
+	frontier := make([]frontierNode, 0, len(cg.callGraph))
+	frontier = append(frontier, frontierNode{rootID, []Signature{root}})
+
+	visited := make([]bool, len(cg.signatures))
+	for len(frontier) > 0 {
+		curr := frontier[0]
+		frontier = frontier[1:]
+		visited[curr.id] = true
+
+		visit(cg.signatures[curr.id], curr.stack)
+		for _, childID := range cg.callGraph[curr.id] {
+			if !visited[childID] {
+				frontier = append(frontier, frontierNode{childID, append(curr.stack, cg.signatures[childID])})
+			}
+		}
+	}
+	return nil
 }
 
 // lazyInitCalledBy initializes the calledByGraph structure if it is nil. Not all applications will require
@@ -72,14 +106,14 @@ func (cg *CallGraph) lazyInitCalledBy() {
 		return
 	}
 	cg.calledByGraph = make(map[int][]int, len(cg.callGraph))
-	for outer, callList := range cg.callGraph {
+	for caller, callList := range cg.callGraph {
 		for _, called := range callList {
 			if _, ok := cg.calledByGraph[called]; ok {
-				if !contains(cg.callGraph[called], outer) {
-					cg.calledByGraph[called] = append(cg.calledByGraph[called], outer)
+				if !contains(cg.callGraph[called], caller) {
+					cg.calledByGraph[called] = append(cg.calledByGraph[called], caller)
 				}
 			} else {
-				cg.calledByGraph[called] = []int{outer}
+				cg.calledByGraph[called] = []int{caller}
 			}
 		}
 	}
