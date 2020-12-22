@@ -37,17 +37,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	}
 
 	inspect.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
-		id, rangeLoop, reason := search.check(n, stack, pass)
-		if id != nil {
-			pass.Report(analysis.Diagnostic{
-				Pos:     rangeLoop.Pos(),
-				End:     rangeLoop.End(),
-				Message: reason.Message(id.Name, pass.Fset.Position(id.Pos())),
-				Related: []analysis.RelatedInformation{
-					{Message: pass.Fset.File(n.Pos()).Name()},
-				},
-			})
-		}
+		reason := search.check(n, stack, pass)
 		return reason == ReasonNone // TODO: don't stop on first hit
 	})
 
@@ -89,14 +79,15 @@ func (r Reason) Message(name string, pos token.Position) string {
 	}
 }
 
-func (s *Searcher) check(n ast.Node, stack []ast.Node, pass *analysis.Pass) (*ast.Ident, *ast.RangeStmt, Reason) {
+// TODO: passing the Reason back up is not very great.
+func (s *Searcher) check(n ast.Node, stack []ast.Node, pass *analysis.Pass) Reason {
 	switch typed := n.(type) {
 	case *ast.RangeStmt:
 		s.parseRangeStmt(typed)
 	case *ast.UnaryExpr:
 		return s.checkUnaryExpr(typed, stack, pass)
 	}
-	return nil, nil, ReasonNone
+	return ReasonNone
 }
 
 func (s *Searcher) parseRangeStmt(n *ast.RangeStmt) {
@@ -146,26 +137,26 @@ func (s *Searcher) callExpr(stack []ast.Node) *ast.CallExpr {
 	return nil
 }
 
-func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *analysis.Pass) (*ast.Ident, *ast.RangeStmt, Reason) {
+func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *analysis.Pass) Reason {
 	if n.Op != token.AND {
-		return nil, nil, ReasonNone
+		return ReasonNone
 	}
 
 	innermostLoop := s.innermostLoop(stack)
 	if innermostLoop == nil { // if this unary expression is not inside a loop, we don't even care.
-		return nil, nil, ReasonNone
+		return ReasonNone
 	}
 
 	// Get identity of the referred item
 	id := getIdentity(n.X)
 	if id == nil || id.Obj == nil {
-		return nil, nil, ReasonNone
+		return ReasonNone
 	}
 
 	// If the identity is not the loop statement variable,
 	// it will not be reported.
 	if _, isStat := s.Stats[id.Obj.Pos()]; !isStat {
-		return nil, nil, ReasonNone
+		return ReasonNone
 	}
 	rangeLoop := s.Stats[id.Obj.Pos()]
 
@@ -174,8 +165,10 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 	assignStmt, child := s.assignStmt(stack)
 	callExpr := s.callExpr(stack)
 	if assignStmt == nil && callExpr == nil {
-		return nil, nil, ReasonNone
+		return ReasonNone
 	}
+
+	// TODO: encapsulate the two following cases into separate functions to make the logic here clearer.
 
 	// If the identity is used in an AssignStmt, it must be on the right-hand side of a '=' token by itself
 	if assignStmt != nil {
@@ -183,23 +176,23 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 		// be done by the assignment as the range-loop variable will never be updated again.
 		innermostRangesOverID := innermostLoop == rangeLoop // true iff innermost loop ranges over the target unary expression
 		if followedBySafeBreak(stack, innermostRangesOverID) {
-			return nil, nil, ReasonNone
+			return ReasonNone
 		}
 		for _, expr := range assignStmt.Rhs {
 			if expr.Pos() == child.Pos() && child.Pos() == n.Pos() {
-				return id, rangeLoop, ReasonPointerReassigned
+				reportBasic(pass, rangeLoop, ReasonPointerReassigned, n, id)
+				return ReasonPointerReassigned
 			}
 		}
-		return nil, nil, ReasonNone
+		return ReasonNone
 	}
-
 	// unaryExpr occurred in a CallExpr
 
 	// check if CallExpr is acceptlisted, ignore it if so.
 	if acceptlist.GlobalAcceptList != nil {
 		packageResolver := pass.ResultOf[packid.Analyzer].(*packid.PackageResolver)
 		if acceptlist.GlobalAcceptList.IgnoreCall(packageResolver, callExpr, stack) {
-			return nil, nil, ReasonNone
+			return ReasonNone
 		}
 	}
 
@@ -209,7 +202,8 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 
 	sig := callgraph.SignatureFromCallExpr(callExpr)
 	if _, ok := syncFuncs[sig]; !ok {
-		return id, rangeLoop, ReasonCallMaybeAsync
+		reportAsyncSuspicion(pass, rangeLoop, ReasonCallMaybeAsync, callExpr, id)
+		return ReasonCallMaybeAsync
 	}
 	callIdx := -1
 	for idx, expr := range callExpr.Args {
@@ -219,14 +213,39 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 		}
 	}
 	if callIdx == -1 {
-		return nil, nil, ReasonNone
+		return ReasonNone
 	}
 	for _, safeIdx := range safePtrs[sig] {
 		if callIdx == safeIdx {
-			return nil, nil, ReasonNone
+			return ReasonNone
 		}
 	}
-	return id, rangeLoop, ReasonCallMayWritePtr
+	reportBasic(pass, rangeLoop, ReasonCallMayWritePtr, n, id)
+	return ReasonCallMayWritePtr
+}
+
+func reportAsyncSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, reason Reason, call *ast.CallExpr, id *ast.Ident) {
+	startsGoroutine := pass.ResultOf[nogofunc.Analyzer].(*nogofunc.Result).ContainsGoStmt
+	cg := pass.ResultOf[callgraph.Analyzer].(*callgraph.Result).ApproxCallGraph
+	sig := callgraph.SignatureFromCallExpr(call)
+	cg.CallGraphBFSWithStack(sig, func(sig callgraph.Signature, stack []callgraph.Signature) {
+		if _, ok := startsGoroutine[sig]; ok {
+			fmt.Println(stack)
+		}
+	})
+	reportBasic(pass, rangeLoop, reason, call, id)
+}
+
+// TODO: remove this function and make it more specific....
+func reportBasic(pass *analysis.Pass, rangeLoop *ast.RangeStmt, reason Reason, n ast.Node, id *ast.Ident) {
+	pass.Report(analysis.Diagnostic{
+		Pos:     rangeLoop.Pos(),
+		End:     rangeLoop.End(),
+		Message: reason.Message(id.Name, pass.Fset.Position(id.Pos())),
+		Related: []analysis.RelatedInformation{
+			{Message: pass.Fset.File(n.Pos()).Name()},
+		},
+	})
 }
 
 // followedBySafeBreak returns true if the current statement is followed by a return or
