@@ -235,6 +235,16 @@ issue it finds, so please do not limit your consideration to the contents of the
 ~~~
 </details>
 
+{{if .ExtraInfo}}
+<details>
+<summary>Click here to show extra information the analyzer produced.</summary>
+
+~~~
+{{.ExtraInfo}}
+~~~
+</details>
+{{end}}
+
 Leave a reaction on this issue to contribute to the project by classifying this instance as a **Bug** :-1:, **Mitigated** :+1:, or **Desirable Behavior** :rocket:
 See the descriptions of the classifications [here](https://github.com/github-vet/rangeclosure-findings#how-can-i-help) for more information.
 
