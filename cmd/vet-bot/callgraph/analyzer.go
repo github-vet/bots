@@ -123,6 +123,10 @@ func parseCall(call *ast.CallExpr, stack []ast.Node) Call {
 	for _, arg := range call.Args {
 		id, ok := arg.(*ast.Ident)
 		if !ok || id.Obj == nil {
+			// id.Obj == nil when the argument in the call doesn't have any 'type information'. However,
+			// any argument coming straight from the function declaration will have type information
+			// associated with it after parsing is complete. Since we're only interested in checking when
+			// a pointer from one function is passed straight to the next; we can skip such arguments.
 			result.ArgDeclPos = append(result.ArgDeclPos, token.NoPos)
 			continue
 		}
