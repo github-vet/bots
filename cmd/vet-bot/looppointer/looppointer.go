@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"log"
 	"strings"
 
 	"github.com/github-vet/bots/cmd/vet-bot/acceptlist"
@@ -232,10 +233,13 @@ func reportAsyncSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, reason 
 	var paths []string
 	cg.CallGraphBFSWithStack(sig, func(sig callgraph.Signature, stack []callgraph.Signature) {
 		if _, ok := startsGoroutine[sig]; ok {
-			// TODO: make this better by associating the position of the declarations with each signature.
 			paths = append(paths, writePath(stack))
 		}
 	})
+	if len(paths) == 0 {
+		log.Printf("async suspicion found at %s was not supported by evidence", pass.Fset.Position(call.Pos()).String())
+		return
+	}
 	pass.Report(analysis.Diagnostic{
 		Pos:     rangeLoop.Pos(),
 		End:     rangeLoop.End(),
@@ -246,7 +250,6 @@ func reportAsyncSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, reason 
 			{Message: reportPaths(paths)},
 		},
 	})
-	fmt.Println(reportPaths(paths))
 }
 
 func writePath(signatures []callgraph.Signature) string {
