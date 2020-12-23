@@ -198,8 +198,8 @@ func GetRootCommitID(bot *VetBot, repo Repository) (string, error) {
 func ReportFinding(ir *IssueReporter, fset *token.FileSet, rootCommitID string, repo Repository) Reporter {
 	return func(contents map[string][]byte) func(analysis.Diagnostic) {
 		return func(d analysis.Diagnostic) {
-			if len(d.Related) != 1 {
-				log.Printf("could not read diagnostic with unexpected 'Related' field: %v", d.Related)
+			if len(d.Related) < 1 {
+				log.Printf("could not read diagnostic with empty 'Related' field: %v", d.Related)
 				return
 			}
 			filename := d.Related[0].Message
