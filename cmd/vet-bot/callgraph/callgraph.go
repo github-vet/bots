@@ -1,6 +1,8 @@
 package callgraph
 
-import "fmt"
+import (
+	"errors"
+)
 
 // CallGraph represents an approximate call-graph, relying only on the name and arity of each function.
 // A call-graph has a node for each function, and edges between two nodes a and b if function a calls
@@ -67,13 +69,16 @@ func (cg *CallGraph) CalledByGraphBFS(roots []Signature, visit func(sig Signatur
 	}
 }
 
+// ErrSignatureMissing is returned when a request signature could not be found.
+var ErrSignatureMissing error = errors.New("requested root signature does not appear in callgraph")
+
 // CallGraphBFSWithStack performs a breadth-first search of the callgraph, starting from the provided root node.
 // The provided visit function is called once for every node visited during the search. Each node in the graph is
 // visited at most once.
 func (cg *CallGraph) CallGraphBFSWithStack(root Signature, visit func(sig Signature, stack []Signature)) error {
 	rootID, ok := cg.signatureToId[root]
 	if !ok {
-		return fmt.Errorf("requested root signature %v does not appear in callgraph", root)
+		return ErrSignatureMissing
 	}
 
 	type frontierNode struct {

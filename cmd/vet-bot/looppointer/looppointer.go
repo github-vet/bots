@@ -230,12 +230,16 @@ func reportAsyncSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, reason 
 	startsGoroutine := pass.ResultOf[nogofunc.Analyzer].(*nogofunc.Result).ContainsGoStmt
 	cg := pass.ResultOf[callgraph.Analyzer].(*callgraph.Result).ApproxCallGraph
 	sig := callgraph.SignatureFromCallExpr(call)
-	var paths []string
-	cg.CallGraphBFSWithStack(sig, func(sig callgraph.Signature, stack []callgraph.Signature) {
+	paths := make(map[string]struct{})
+	err := cg.CallGraphBFSWithStack(sig, func(sig callgraph.Signature, stack []callgraph.Signature) {
 		if _, ok := startsGoroutine[sig]; ok {
-			paths = append(paths, writePath(stack))
+			paths[writePath(stack)] = struct{}{}
 		}
 	})
+	if err == callgraph.ErrSignatureMissing {
+		log.Printf("could not find root signature %v in callgraph; 3rd-party code suspected", sig)
+		// TODO?: report possible third-party code
+	}
 	if len(paths) == 0 {
 		log.Printf("async suspicion found at %s was not supported by evidence", pass.Fset.Position(call.Pos()).String())
 		return
@@ -263,10 +267,10 @@ func writePath(signatures []callgraph.Signature) string {
 	return sb.String()
 }
 
-func reportPaths(paths []string) string {
+func reportPaths(paths map[string]struct{}) string {
 	var sb strings.Builder
 	sb.WriteString("The following paths through the callgraph could lead to a goroutine:\n")
-	for _, path := range paths {
+	for path := range paths {
 		fmt.Fprintf(&sb, "\t%v\n", path)
 	}
 	return sb.String()
