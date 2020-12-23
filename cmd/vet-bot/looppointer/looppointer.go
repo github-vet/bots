@@ -231,7 +231,7 @@ func reportAsyncSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, reason 
 	cg := pass.ResultOf[callgraph.Analyzer].(*callgraph.Result).ApproxCallGraph
 	sig := callgraph.SignatureFromCallExpr(call)
 	paths := make(map[string]struct{})
-	err := cg.CallGraphBFSWithStack(sig, func(sig callgraph.Signature, stack []callgraph.Signature) {
+	err := cg.BFSWithStack(sig, func(sig callgraph.Signature, stack []callgraph.Signature) {
 		if _, ok := startsGoroutine[sig]; ok {
 			paths[writePath(stack)] = struct{}{}
 		}

@@ -3,6 +3,7 @@ package pointerescapes
 import (
 	"go/ast"
 	"go/token"
+	"log"
 	"reflect"
 
 	"github.com/github-vet/bots/cmd/vet-bot/callgraph"
@@ -110,14 +111,19 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	// In event of a naming collision, if a pointer in any of the declarations is considered unsafe, it gets marked as
 	// such in all instances.
 	callsBySignature := callsBySignature(graph.Calls)
-	graph.ApproxCallGraph.CalledByGraphBFS(graph.ApproxCallGraph.CalledByRoots(), func(callSig callgraph.Signature) {
-		// loop over all calls with a matching signature and, if they pass a pointer passed into their caller into an
-		// unsafe position, mark the pointer in the caller unsafe.
+	graph.ApproxCallGraph.CalledByBFS(graph.ApproxCallGraph.CalledByRoots(), func(callSig callgraph.Signature) {
+		// loop over all calls with a matching signature and, if they use a pointer from their caller in an
+		// unsafe position, mark the pointer from the caller unsafe also.
 		safeArgIndexes := result.SafePtrs[callSig]
 		calls := callsBySignature[callSig]
 		for _, call := range calls {
 			for idx, argPos := range call.ArgDeclPos {
-				if argPos == token.NoPos || contains(safeArgIndexes, idx) {
+				if argPos == token.NoPos {
+					log.Printf("sanity check: found an arg declaration with a missing source position for %v", call)
+					continue
+				}
+				if contains(safeArgIndexes, idx) {
+					// argument is safe
 					continue
 				}
 				// argument passed in this call is possibly unsafe, so mark the argument from the caller unsafe as well
