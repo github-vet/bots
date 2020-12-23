@@ -3,7 +3,6 @@ package pointerescapes
 import (
 	"go/ast"
 	"go/token"
-	"log"
 	"reflect"
 
 	"github.com/github-vet/bots/cmd/vet-bot/callgraph"
@@ -118,11 +117,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		calls := callsBySignature[callSig]
 		for _, call := range calls {
 			for idx, argPos := range call.ArgDeclPos {
-				if argPos == token.NoPos {
-					log.Printf("sanity check: found an arg declaration with a missing source position for %v", call)
-					continue
-				}
-				if contains(safeArgIndexes, idx) {
+				if argPos == token.NoPos || contains(safeArgIndexes, idx) {
 					// argument is safe
 					continue
 				}

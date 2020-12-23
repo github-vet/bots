@@ -2,7 +2,6 @@ package callgraph
 
 import (
 	"errors"
-	"fmt"
 )
 
 // CallGraph represents an approximate call-graph, relying only on the name and arity of each function.
@@ -60,7 +59,6 @@ func (cg *CallGraph) AddSignature(sig Signature) int {
 // is made to check if the two signatures IDs exist in the graph. Therefore, users
 // can corrupt this data structure if they are not careful.
 func (cg *CallGraph) AddCall(callerID, callID int) {
-	fmt.Printf("%d, %d\n", callerID, callID)
 	if !contains(cg.callGraph[callerID], callID) {
 		cg.callGraph[callerID] = append(cg.callGraph[callerID], callID)
 	}
