@@ -40,7 +40,7 @@ type Call struct {
 	Caller SignaturePos
 	// Pos is the source position of the call.
 	Pos token.Pos
-	// ArgDeclPos is the source position of each call arguments's declaration.
+	// ArgDeclPos contains the source positions of the declaration of each call's arguments in order.
 	ArgDeclPos []token.Pos
 }
 
@@ -86,7 +86,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		return true
 	})
 
-	cg := makeCallGraph(result)
+	cg := resultToCallGraph(result)
 	result.ApproxCallGraph = &cg
 	return &result, nil
 }
@@ -138,34 +138,6 @@ func outermostFuncDecl(stack []ast.Node) *ast.FuncDecl {
 		}
 	}
 	return nil
-}
-
-func makeCallGraph(r Result) CallGraph {
-	result := CallGraph{
-		signatureToId: make(map[Signature]int),
-		callGraph:     make(map[int][]int),
-	}
-	insertSignature := func(sig Signature) int {
-		id := len(result.signatures)
-		result.signatures = append(result.signatures, sig)
-		result.signatureToId[sig] = id
-		return id
-	}
-	for _, call := range r.Calls {
-		callerSig := call.Caller.Signature
-		callerID, ok := result.signatureToId[callerSig]
-		if !ok {
-			callerID = insertSignature(callerSig)
-		}
-		callID, ok := result.signatureToId[call.Signature]
-		if !ok {
-			callID = insertSignature(call.Signature)
-		}
-		if !contains(result.callGraph[callerID], callID) {
-			result.callGraph[callerID] = append(result.callGraph[callerID], callID)
-		}
-	}
-	return result
 }
 
 // SignatureFromCallExpr retrieves the signature of a call expression.

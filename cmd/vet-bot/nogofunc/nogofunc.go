@@ -89,7 +89,7 @@ func findSyncSignatures(sigs map[token.Pos]*signatureFacts, graph *callgraph.Cal
 	for sig := range unsafe {
 		unsafeNodes = append(unsafeNodes, sig)
 	}
-	graph.CalledByGraphBFS(unsafeNodes, func(sig callgraph.Signature) {
+	graph.CalledByBFS(unsafeNodes, func(sig callgraph.Signature) {
 		unsafe[sig] = struct{}{}
 	})
 	// remove all unsafe signatures from the list of results

@@ -2,6 +2,7 @@ package callgraph
 
 import (
 	"errors"
+	"fmt"
 )
 
 // CallGraph represents an approximate call-graph, relying only on the name and arity of each function.
@@ -19,6 +20,50 @@ type CallGraph struct {
 	signatureToId map[Signature]int
 	callGraph     map[int][]int
 	calledByGraph map[int][]int // lazily-constructed
+}
+
+func resultToCallGraph(r Result) CallGraph {
+	result := NewCallGraph()
+	for _, call := range r.Calls {
+		callerSig := call.Caller.Signature
+		callerID, ok := result.signatureToId[callerSig]
+		if !ok {
+			callerID = result.AddSignature(callerSig)
+		}
+		callID, ok := result.signatureToId[call.Signature]
+		if !ok {
+			callID = result.AddSignature(call.Signature)
+		}
+		result.AddCall(callerID, callID)
+	}
+	return result
+}
+
+// NewCallGraph creates an empty callgraph.
+func NewCallGraph() CallGraph {
+	return CallGraph{
+		signatureToId: make(map[Signature]int),
+		callGraph:     make(map[int][]int),
+	}
+}
+
+// AddSignature adds a new signature to the callgraph and returns an ID that can
+// later be used to refer to it.
+func (cg *CallGraph) AddSignature(sig Signature) int {
+	id := len(cg.signatures)
+	cg.signatures = append(cg.signatures, sig)
+	cg.signatureToId[sig] = id
+	return id
+}
+
+// AddCall adds an edge in the callgraph from the callerID to the callID; no attempt
+// is made to check if the two signatures IDs exist in the graph. Therefore, users
+// can corrupt this data structure if they are not careful.
+func (cg *CallGraph) AddCall(callerID, callID int) {
+	fmt.Printf("%d, %d\n", callerID, callID)
+	if !contains(cg.callGraph[callerID], callID) {
+		cg.callGraph[callerID] = append(cg.callGraph[callerID], callID)
+	}
 }
 
 // CalledByRoots returns a list of the nodes in the called-by graph which do not have any incoming edges (i.e.
@@ -41,10 +86,10 @@ func (cg *CallGraph) CalledByRoots() []Signature {
 	return result
 }
 
-// CalledByGraphBFS performs a breadth-first search of the called-by graph, starting from the set of roots provided.
+// CalledByBFS performs a breadth-first search of the called-by graph, starting from the set of roots provided.
 // The provided visit function is called for every node visited during the search. Each node in the graph is visited
 // at most once.
-func (cg *CallGraph) CalledByGraphBFS(roots []Signature, visit func(sig Signature)) {
+func (cg *CallGraph) CalledByBFS(roots []Signature, visit func(sig Signature)) {
 	cg.lazyInitCalledBy()
 	rootIDs := make([]int, 0, len(roots))
 	for _, sig := range roots {
@@ -72,10 +117,10 @@ func (cg *CallGraph) CalledByGraphBFS(roots []Signature, visit func(sig Signatur
 // ErrSignatureMissing is returned when a request signature could not be found.
 var ErrSignatureMissing error = errors.New("requested root signature does not appear in callgraph")
 
-// CallGraphBFSWithStack performs a breadth-first search of the callgraph, starting from the provided root node.
+// BFSWithStack performs a breadth-first search of the callgraph, starting from the provided root node.
 // The provided visit function is called once for every node visited during the search. Each node in the graph is
-// visited at most once.
-func (cg *CallGraph) CallGraphBFSWithStack(root Signature, visit func(sig Signature, stack []Signature)) error {
+// visited once for every path from the provided root node
+func (cg *CallGraph) BFSWithStack(root Signature, visit func(sig Signature, stack []Signature)) error {
 	rootID, ok := cg.signatureToId[root]
 	if !ok {
 		return ErrSignatureMissing
