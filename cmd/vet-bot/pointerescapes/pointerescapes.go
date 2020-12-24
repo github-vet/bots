@@ -29,10 +29,14 @@ var Analyzer = &analysis.Analyzer{
 type Result struct {
 	// SafePtrs maps function signatures to a list of indices of pointer arguments which are safe.
 	SafePtrs map[callgraph.Signature][]int
+	// DangerGraph descripts the subgraph of the callgraph which consist of dangerous pointer calls.
+	DangerGraph callgraph.CallGraph
+	// WritesPtr is a set of signatures which were found to write a pointer.
+	WritesPtr map[callgraph.Signature]struct{}
 }
 
-// pointerArgs is a map from the source position of the declaration of pointer arguments to the
-// position index of that argument.
+// pointerArgs is a map from the source position of the declaration of pointer arguments found in
+// function declarations to the positional index of the argument.
 type pointerArgs map[token.Pos]int
 
 func (pa pointerArgs) Indices() []int {
@@ -44,41 +48,49 @@ func (pa pointerArgs) Indices() []int {
 }
 
 // safeArgMap maps from the source position of function declarations to a collection of its pointer
-// arguments. Each pointer argument is stored in a map, keyed by its source position and mapping to
-// its position in the function.
+// arguments.
 type safeArgMap map[token.Pos]pointerArgs
 
 func newSafeArgMap() safeArgMap {
 	return safeArgMap(make(map[token.Pos]pointerArgs))
 }
 
-// markUnsafe reads the expressions
-func (sam safeArgMap) MarkUnsafe(funcPos token.Pos, args []ast.Expr) {
+// MarkUnsafe reads the expressions provided, and removes any pointers arguments found in the provided
+// list of ast.Expr from the provided function declaration, denoted by its source position. It returns
+// true only if any unsafe arguments were found.
+func (sam safeArgMap) MarkUnsafe(funcDeclPos token.Pos, args []ast.Expr) bool {
+	anyUnsafe := false
 	for _, expr := range args {
 		switch typed := expr.(type) {
 		case *ast.Ident:
 			if typed.Obj == nil {
 				continue
 			}
-			delete(sam[funcPos], typed.Obj.Pos())
+			_, ok := sam[funcDeclPos][typed.Obj.Pos()]
+			anyUnsafe = anyUnsafe || ok
+			delete(sam[funcDeclPos], typed.Obj.Pos())
 		case *ast.UnaryExpr:
 			id, ok := typed.X.(*ast.Ident)
 			if !ok || id.Obj == nil {
 				continue
 			}
-			delete(sam[funcPos], id.Obj.Pos())
+			_, ok = sam[funcDeclPos][id.Obj.Pos()]
+			anyUnsafe = anyUnsafe || ok
+			delete(sam[funcDeclPos], id.Obj.Pos())
 		}
 	}
+	return anyUnsafe
 }
 
 func run(pass *analysis.Pass) (interface{}, error) {
 	graph := pass.ResultOf[callgraph.Analyzer].(*callgraph.Result)
 
-	safeArgs := inspectSafeArgs(pass)
-
 	result := Result{
 		SafePtrs: make(map[callgraph.Signature][]int),
 	}
+
+	safeArgs, writesPtr := inspectSafeArgs(pass)
+	result.WritesPtr = writesPtr
 
 	// handle naming collisions due to use of an approximate call-graph. We can only track
 	// pointer arguments accurately when all colliding signatures share a pointer argument in
@@ -105,6 +117,8 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		}
 	}
 
+	result.DangerGraph = callgraph.NewCallGraph()
+
 	// Threads the notion of an 'unsafe pointer argument' through the call-graph, by performing a breadth-first search
 	// through the called-by graph, and marking unsafe caller arguments as we visit each call-site.
 	// In event of a naming collision, if a pointer in any of the declarations is considered unsafe, it gets marked as
@@ -126,6 +140,9 @@ func run(pass *analysis.Pass) (interface{}, error) {
 				if !ok {
 					continue // callerIdx can't be in SafePtrs, since SafePtrs was created from safeArgs
 				}
+				callID := result.DangerGraph.AddSignature(call.Signature)
+				callerID := result.DangerGraph.AddSignature(call.Caller.Signature)
+				result.DangerGraph.AddCall(callerID, callID)
 				result.SafePtrs[call.Caller.Signature] = remove(result.SafePtrs[call.Caller.Signature], argIdx)
 			}
 		}
@@ -133,9 +150,9 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	return &result, nil
 }
 
-// inspectSafeArgs parses the file and returns an initial set of arguments, all of which are
-// marked as safe.
-func inspectSafeArgs(pass *analysis.Pass) safeArgMap {
+// inspectSafeArgs parses the file and returns an initial safeArgMap, along with a set of
+// signatures that have been found to write at least one of their pointer arguments.
+func inspectSafeArgs(pass *analysis.Pass) (safeArgMap, map[callgraph.Signature]struct{}) {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 	nodeFilter := []ast.Node{
 		(*ast.FuncDecl)(nil),
@@ -144,6 +161,7 @@ func inspectSafeArgs(pass *analysis.Pass) safeArgMap {
 	}
 
 	safeArgs := newSafeArgMap()
+	writePtrSigs := make(map[callgraph.Signature]struct{})
 
 	inspect.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
 		if !push {
@@ -155,31 +173,35 @@ func inspectSafeArgs(pass *analysis.Pass) safeArgMap {
 			safeArgs[n.Pos()] = parsePointerArgs(typed)
 		case *ast.AssignStmt:
 			// a pointer argument used on the RHS of an assign statement is marked unsafe.
-			outPos := outermostFuncDeclPos(stack)
-			if _, ok := safeArgs[outPos]; ok {
-				safeArgs.MarkUnsafe(outPos, typed.Rhs)
+			fdec := outermostFuncDeclPos(stack)
+			if _, ok := safeArgs[fdec.Pos()]; !ok {
+				if safeArgs.MarkUnsafe(fdec.Pos(), typed.Rhs) {
+					writePtrSigs[callgraph.SignatureFromFuncDecl(fdec)] = struct{}{}
+				}
 			}
 		case *ast.CompositeLit:
 			// a pointer argument used inside a composite literal is marked unsafe.
-			outPos := outermostFuncDeclPos(stack)
-			if _, ok := safeArgs[outPos]; ok {
-				safeArgs.MarkUnsafe(outPos, typed.Elts)
+			fdec := outermostFuncDeclPos(stack)
+			if _, ok := safeArgs[fdec.Pos()]; ok {
+				if safeArgs.MarkUnsafe(fdec.Pos(), typed.Elts) {
+					writePtrSigs[callgraph.SignatureFromFuncDecl(fdec)] = struct{}{}
+				}
 			}
 		}
 		return true
 	})
-	return safeArgs
+	return safeArgs, writePtrSigs
 }
 
 // outermostFuncDeclPos returns the source position of the outermost function declaration on the
 // provided stack.
-func outermostFuncDeclPos(stack []ast.Node) token.Pos {
+func outermostFuncDeclPos(stack []ast.Node) *ast.FuncDecl {
 	for i := 0; i < len(stack); i++ {
 		if fdec, ok := stack[i].(*ast.FuncDecl); ok {
-			return fdec.Pos()
+			return fdec
 		}
 	}
-	return token.NoPos
+	return nil
 }
 
 func callsBySignature(calls []callgraph.Call) map[callgraph.Signature][]callgraph.Call {

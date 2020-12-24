@@ -153,3 +153,8 @@ func SignatureFromCallExpr(call *ast.CallExpr) Signature {
 	}
 	return result
 }
+
+// SignatureFromFuncDecl retrieves a signature from the provided FuncDecl.
+func SignatureFromFuncDecl(fdec *ast.FuncDecl) Signature {
+	return parseSignature(fdec).Signature
+}
