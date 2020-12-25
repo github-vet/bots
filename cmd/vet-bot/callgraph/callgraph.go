@@ -2,6 +2,7 @@ package callgraph
 
 import (
 	"errors"
+	"sync"
 )
 
 // CallGraph represents an approximate call-graph, relying only on the name and arity of each function.
@@ -19,20 +20,14 @@ type CallGraph struct {
 	signatureToId map[Signature]int
 	callGraph     map[int][]int
 	calledByGraph map[int][]int // lazily-constructed
+	mut           sync.Mutex
 }
 
 func resultToCallGraph(r Result) CallGraph {
 	result := NewCallGraph()
 	for _, call := range r.Calls {
-		callerSig := call.Caller.Signature
-		callerID, ok := result.signatureToId[callerSig]
-		if !ok {
-			callerID = result.AddSignature(callerSig)
-		}
-		callID, ok := result.signatureToId[call.Signature]
-		if !ok {
-			callID = result.AddSignature(call.Signature)
-		}
+		callerID := result.AddSignature(call.Caller.Signature)
+		callID := result.AddSignature(call.Signature)
 		result.AddCall(callerID, callID)
 	}
 	return result
@@ -49,6 +44,9 @@ func NewCallGraph() CallGraph {
 // AddSignature adds a new signature to the callgraph and returns an ID that can
 // later be used to refer to it.
 func (cg *CallGraph) AddSignature(sig Signature) int {
+	if id, ok := cg.signatureToId[sig]; ok {
+		return id
+	}
 	id := len(cg.signatures)
 	cg.signatures = append(cg.signatures, sig)
 	cg.signatureToId[sig] = id
@@ -150,6 +148,8 @@ func (cg *CallGraph) BFSWithStack(root Signature, visit func(sig Signature, stac
 // lazyInitCalledBy initializes the calledByGraph structure if it is nil. Not all applications will require
 // this graph, so it is constructed on-demand.
 func (cg *CallGraph) lazyInitCalledBy() {
+	cg.mut.Lock()
+	defer cg.mut.Unlock()
 	if cg.calledByGraph != nil {
 		return
 	}

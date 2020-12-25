@@ -204,7 +204,7 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 
 	sig := callgraph.SignatureFromCallExpr(callExpr)
 	if _, ok := syncFuncs[sig]; !ok {
-		reportAsyncSuspicion(pass, rangeLoop, ReasonCallMaybeAsync, callExpr, id)
+		reportAsyncSuspicion(pass, rangeLoop, callExpr, id)
 		return ReasonCallMaybeAsync
 	}
 	callIdx := -1
@@ -222,36 +222,70 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 			return ReasonNone
 		}
 	}
-	reportBasic(pass, rangeLoop, ReasonCallMayWritePtr, n, id)
+	reportWritePtrSuspicion(pass, rangeLoop, callExpr, id)
 	return ReasonCallMayWritePtr
 }
 
-func reportAsyncSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, reason Reason, call *ast.CallExpr, id *ast.Ident) {
-	startsGoroutine := pass.ResultOf[nogofunc.Analyzer].(*nogofunc.Result).ContainsGoStmt
-	cg := pass.ResultOf[callgraph.Analyzer].(*callgraph.Result).ApproxCallGraph
+// reportWritePtrSuspicion validates the suspicion and also reports the finding that a function may write a
+// pointer.
+func reportWritePtrSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, call *ast.CallExpr, id *ast.Ident) {
+	dangerGraph := pass.ResultOf[pointerescapes.Analyzer].(*pointerescapes.Result).DangerGraph
+	writesPtr := pass.ResultOf[pointerescapes.Analyzer].(*pointerescapes.Result).WritesPtr
+
 	sig := callgraph.SignatureFromCallExpr(call)
 	paths := make(map[string]struct{})
+
+	err := dangerGraph.BFSWithStack(sig, func(sig callgraph.Signature, stack []callgraph.Signature) {
+		if _, ok := writesPtr[sig]; ok {
+			paths[writePath(stack)] = struct{}{}
+		}
+	})
+
+	if err == callgraph.ErrSignatureMissing {
+		// TODO: this is tripping during the devtest. Need to understand why.
+		log.Printf("writeptr: could not find root signature %v in callgraph; 3rd-party code suspected", sig)
+	}
+	pass.Report(analysis.Diagnostic{
+		Pos:     rangeLoop.Pos(),
+		End:     rangeLoop.End(),
+		Message: ReasonCallMayWritePtr.Message(id.Name, pass.Fset.Position(id.Pos())),
+
+		Related: []analysis.RelatedInformation{
+			{Message: pass.Fset.File(call.Pos()).Name()},
+			{Message: reportPaths(paths, "function which writes a pointer argument")},
+		},
+	})
+}
+
+// reportAsyncSuspicion validates the suspicion and also reports the finding that a function may lead to starting
+// a goroutine.
+func reportAsyncSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, call *ast.CallExpr, id *ast.Ident) {
+	// TODO: this also must report whenever a noted "third-party" signature is reached in the callgraph.
+	startsGoroutine := pass.ResultOf[nogofunc.Analyzer].(*nogofunc.Result).ContainsGoStmt
+	cg := pass.ResultOf[callgraph.Analyzer].(*callgraph.Result).ApproxCallGraph
+
+	sig := callgraph.SignatureFromCallExpr(call)
+	paths := make(map[string]struct{})
+
 	err := cg.BFSWithStack(sig, func(sig callgraph.Signature, stack []callgraph.Signature) {
 		if _, ok := startsGoroutine[sig]; ok {
 			paths[writePath(stack)] = struct{}{}
 		}
 	})
+
 	if err == callgraph.ErrSignatureMissing {
-		log.Printf("could not find root signature %v in callgraph; 3rd-party code suspected", sig)
-		// TODO?: report possible third-party code
+		log.Printf("async: could not find root signature %v in callgraph; 3rd-party code suspected", sig)
+		// TODO?: report possible third-party code?
 	}
-	if len(paths) == 0 {
-		log.Printf("async suspicion found at %s was not supported by evidence", pass.Fset.Position(call.Pos()).String())
-		return
-	}
+
 	pass.Report(analysis.Diagnostic{
 		Pos:     rangeLoop.Pos(),
 		End:     rangeLoop.End(),
-		Message: reason.Message(id.Name, pass.Fset.Position(id.Pos())),
+		Message: ReasonCallMaybeAsync.Message(id.Name, pass.Fset.Position(id.Pos())),
 
 		Related: []analysis.RelatedInformation{
 			{Message: pass.Fset.File(call.Pos()).Name()},
-			{Message: reportPaths(paths)},
+			{Message: reportPaths(paths, "function calling a goroutine")},
 		},
 	})
 }
@@ -267,11 +301,16 @@ func writePath(signatures []callgraph.Signature) string {
 	return sb.String()
 }
 
-func reportPaths(paths map[string]struct{}) string {
+func reportPaths(paths map[string]struct{}, badFuncPhrase string) string {
 	var sb strings.Builder
-	sb.WriteString("The following paths through the callgraph could lead to a goroutine:\n")
+	sb.WriteString("The following paths through the callgraph could lead to a ")
+	sb.WriteString(badFuncPhrase)
+	sb.WriteString(":\n")
 	for path := range paths {
 		fmt.Fprintf(&sb, "\t%v\n", path)
+	}
+	if len(paths) == 0 {
+		sb.WriteString("\tno paths found; call ended in third-party code; stay tuned for diagnostics")
 	}
 	return sb.String()
 }
