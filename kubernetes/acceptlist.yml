@@ -39,4 +39,9 @@ data:
         - ServeFile
         - SetCookie
         - ProxyURL
+      reflect:
+        - ValueOf
+        - TypeOf
+        - Swapper
+        - DeepEqual
 
