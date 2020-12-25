@@ -254,7 +254,6 @@ func reportWritePtrSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, call
 			{Message: reportPathGraph(sigGraph, "function which writes a pointer argument")},
 		},
 	})
-	fmt.Println(reportPathGraph(sigGraph, "function which writes a pointer argument"))
 }
 
 // reportAsyncSuspicion validates the suspicion and also reports the finding that a function may lead to starting
@@ -288,11 +287,9 @@ func reportAsyncSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, call *a
 			{Message: reportPathGraph(sigGraph, "function calling a goroutine")},
 		},
 	})
-	fmt.Println(reportPathGraph(sigGraph, "function calling a goroutine"))
 }
 
 func addPathToGraph(graph map[string]map[string]struct{}, path []callgraph.Signature) {
-	fmt.Printf("adding path %v to graph\n", path)
 	for i := 0; i < len(path); i++ {
 		from := fmt.Sprintf("(%s, %d)", path[i].Name, path[i].Arity)
 		// put edge from -> to into graph
