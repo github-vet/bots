@@ -242,7 +242,6 @@ func reportWritePtrSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, call
 	})
 
 	if err == callgraph.ErrSignatureMissing {
-		// TODO: this is tripping during the devtest. Need to understand why.
 		log.Printf("writeptr: could not find root signature %v in callgraph; 3rd-party code suspected", sig)
 	}
 	pass.Report(analysis.Diagnostic{
