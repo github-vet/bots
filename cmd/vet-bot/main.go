@@ -83,6 +83,8 @@ func sampleRepos(vetBot *VetBot, sampler *RepositorySampler, issueReporter *Issu
 				log.Printf("stopping scan due to error: %v", err)
 				break
 			}
+			// the following line was found to reduce memory usage on Windows; it may not be
+			// necessary on all OS's
 			debug.FreeOSMemory()
 		}
 	}
