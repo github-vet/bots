@@ -229,15 +229,15 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 // reportWritePtrSuspicion validates the suspicion and also reports the finding that a function may write a
 // pointer.
 func reportWritePtrSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, call *ast.CallExpr, id *ast.Ident) {
-	dangerGraph := pass.ResultOf[pointerescapes.Analyzer].(*pointerescapes.Result).DangerGraph
+	dangerGraph := &pass.ResultOf[pointerescapes.Analyzer].(*pointerescapes.Result).DangerGraph
 	writesPtr := pass.ResultOf[pointerescapes.Analyzer].(*pointerescapes.Result).WritesPtr
 
 	sig := callgraph.SignatureFromCallExpr(call)
-	paths := make(map[string]struct{})
+	sigGraph := make(map[string]map[string]struct{})
 
 	err := dangerGraph.BFSWithStack(sig, func(sig callgraph.Signature, stack []callgraph.Signature) {
 		if _, ok := writesPtr[sig]; ok {
-			paths[writePath(stack)] = struct{}{}
+			addPathToGraph(sigGraph, stack)
 		}
 	})
 
@@ -251,9 +251,10 @@ func reportWritePtrSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, call
 
 		Related: []analysis.RelatedInformation{
 			{Message: pass.Fset.File(call.Pos()).Name()},
-			{Message: reportPaths(paths, "function which writes a pointer argument")},
+			{Message: reportPathGraph(sigGraph, "function which writes a pointer argument")},
 		},
 	})
+	fmt.Println(reportPathGraph(sigGraph, "function which writes a pointer argument"))
 }
 
 // reportAsyncSuspicion validates the suspicion and also reports the finding that a function may lead to starting
@@ -264,11 +265,11 @@ func reportAsyncSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, call *a
 	cg := pass.ResultOf[callgraph.Analyzer].(*callgraph.Result).ApproxCallGraph
 
 	sig := callgraph.SignatureFromCallExpr(call)
-	paths := make(map[string]struct{})
+	sigGraph := make(map[string]map[string]struct{})
 
 	err := cg.BFSWithStack(sig, func(sig callgraph.Signature, stack []callgraph.Signature) {
 		if _, ok := startsGoroutine[sig]; ok {
-			paths[writePath(stack)] = struct{}{}
+			addPathToGraph(sigGraph, stack)
 		}
 	})
 
@@ -284,33 +285,47 @@ func reportAsyncSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, call *a
 
 		Related: []analysis.RelatedInformation{
 			{Message: pass.Fset.File(call.Pos()).Name()},
-			{Message: reportPaths(paths, "function calling a goroutine")},
+			{Message: reportPathGraph(sigGraph, "function calling a goroutine")},
 		},
 	})
+	fmt.Println(reportPathGraph(sigGraph, "function calling a goroutine"))
 }
 
-func writePath(signatures []callgraph.Signature) string {
-	var sb strings.Builder
-	for i, sig := range signatures {
-		fmt.Fprintf(&sb, "(%s, %d)", sig.Name, sig.Arity)
-		if i != len(signatures)-1 {
-			sb.WriteString(" -> ")
+func addPathToGraph(graph map[string]map[string]struct{}, path []callgraph.Signature) {
+	fmt.Printf("adding path %v to graph\n", path)
+	for i := 0; i < len(path); i++ {
+		from := fmt.Sprintf("(%s, %d)", path[i].Name, path[i].Arity)
+		// put edge from -> to into graph
+		fromNeighbors, ok := graph[from]
+		if !ok {
+			graph[from] = make(map[string]struct{})
+			fromNeighbors = graph[from]
+		}
+		if i != len(path)-1 {
+			to := fmt.Sprintf("(%s, %d)", path[i+1].Name, path[i+1].Arity)
+			fromNeighbors[to] = struct{}{}
 		}
 	}
-	return sb.String()
 }
 
-func reportPaths(paths map[string]struct{}, badFuncPhrase string) string {
+func reportPathGraph(pathGraph map[string]map[string]struct{}, badFuncPhrase string) string {
 	var sb strings.Builder
-	sb.WriteString("The following paths through the callgraph could lead to a ")
+	sb.WriteString("The following dot graph describes paths through the callgraph that could lead to a ")
 	sb.WriteString(badFuncPhrase)
 	sb.WriteString(":\n")
-	for path := range paths {
-		fmt.Fprintf(&sb, "\t%v\n", path)
+	if len(pathGraph) == 0 {
+		sb.WriteString("\tno paths found; call may have ended in third-party code; stay tuned for diagnostics")
+		return sb.String()
 	}
-	if len(paths) == 0 {
-		sb.WriteString("\tno paths found; call ended in third-party code; stay tuned for diagnostics")
+	sb.WriteString("digraph G {\n")
+	for from, neighbors := range pathGraph {
+		fmt.Fprintf(&sb, `  "%s" -> {`, from)
+		for to := range neighbors {
+			fmt.Fprintf(&sb, `"%s";`, to)
+		}
+		sb.WriteString("}\n")
 	}
+	sb.WriteString("}\n")
 	return sb.String()
 }
 
