@@ -92,7 +92,7 @@ func ProcessAllIssues(bot *TrackBot) {
 	issuePage, resp, err := bot.client.ListIssuesByRepo(bot.owner, bot.repo, &opts)
 	for {
 		if err != nil {
-			log.Printf("could not grab issues: %v", err) // TODO: handle rate-limiting
+			log.Printf("could not grab issues: %v", err)
 		}
 		ProcessIssuePage(bot, issuePage)
 		opts.Page = resp.NextPage
@@ -122,10 +122,19 @@ func ProcessIssuePage(bot *TrackBot, issuePage []*github.Issue) {
 			}
 			continue
 		}
-		if HasLabel(issue, "fresh") {
-			bot.DoAsync(func() { RemoveLabel(bot, issue, "fresh") })
-		}
+
 		allReactions := GetAllReactions(bot, num)
+
+		if HasLabel(issue, "fresh") {
+			// remove fresh label only if the issue has at least one valid reaction.
+			for _, reaction := range allReactions {
+				if isValidReaction(reaction.GetContent()) {
+					bot.DoAsync(func() { RemoveLabel(bot, issue, "fresh") })
+					break
+				}
+			}
+		}
+
 		if record, ok := bot.issues[num]; ok {
 			UpdateIssueReactions(bot, record, *issue, allReactions)
 		} else {
