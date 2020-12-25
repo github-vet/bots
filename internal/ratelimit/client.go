@@ -185,12 +185,7 @@ func (c *Client) updateRateLimits(resp *github.Response, err error) {
 	}
 	rate := resp.Rate
 	statusCode := resp.StatusCode
-	if statusCode == http.StatusForbidden {
-		c.mut.Lock()
-		defer c.mut.Unlock()
-		c.limited = true
-		c.resetAt = time.Now().Add(minAbuseRetry)
-	} else if abuse, ok := err.(*github.AbuseRateLimitError); ok {
+	if abuse, ok := err.(*github.AbuseRateLimitError); ok {
 		c.mut.Lock()
 		defer c.mut.Unlock()
 		c.limited = true
@@ -200,6 +195,11 @@ func (c *Client) updateRateLimits(resp *github.Response, err error) {
 		defer c.mut.Unlock()
 		c.limited = true
 		c.resetAt = rate.Reset.Time
+	} else if statusCode == http.StatusForbidden {
+		c.mut.Lock()
+		defer c.mut.Unlock()
+		c.limited = true
+		c.resetAt = time.Now().Add(minAbuseRetry)
 	}
 }
 

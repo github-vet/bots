@@ -13,10 +13,10 @@ import (
 // RepositorySampler maintains the state of unvisited repositories and provides a mechanism
 // for visiting them at random.
 type RepositorySampler struct {
-	m           sync.Mutex
-	unvisited   []Repository
-	visitedFile *MutexWriter
-	csvWriter   *csv.Writer
+	m             sync.Mutex
+	unvisited     []Repository
+	visitedFile   *MutexWriter
+	visitedWriter *csv.Writer
 }
 
 // NewRepositorySampler initializes the repository sampler by opening two CSV files. The first file
@@ -49,9 +49,9 @@ func NewRepositorySampler(allFile string, visitedFile string) (*RepositorySample
 	log.Printf("visited list loaded from %s", visitedFile)
 	mw := NewMutexWriter(visitedWriter)
 	return &RepositorySampler{
-		unvisited:   repoList,
-		visitedFile: &mw,
-		csvWriter:   csv.NewWriter(&mw),
+		unvisited:     repoList,
+		visitedFile:   &mw,
+		visitedWriter: csv.NewWriter(&mw),
 	}, nil
 }
 
@@ -60,23 +60,23 @@ func NewRepositorySampler(allFile string, visitedFile string) (*RepositorySample
 // is removed from the list and is not visited again. If the handler returns an error, the sampled repository is
 // not removed from the list and may be visited again. Sample only returns an error itself if no further samples should
 // be made.
-func (gs *RepositorySampler) Sample(handler func(Repository) error) error {
-	if len(gs.unvisited) == 0 {
+func (rs *RepositorySampler) Sample(handler func(Repository) error) error {
+	if len(rs.unvisited) == 0 {
 		return errors.New("no unvisited repositories left to sample")
 	}
-	repo := gs.sampleAndReturn()
+	repo := rs.sampleAndReturn()
 	err := handler(repo)
 
 	if err != nil {
-		gs.m.Lock()
-		defer gs.m.Unlock()
-		gs.unvisited = append(gs.unvisited, repo)
+		rs.m.Lock()
+		defer rs.m.Unlock()
+		rs.unvisited = append(rs.unvisited, repo)
 		log.Printf("repo %s/%s will be tried again despite error: %v", repo.Owner, repo.Repo, err)
 		return nil
 	}
 
-	err = gs.csvWriter.Write([]string{repo.Owner, repo.Repo})
-	gs.csvWriter.Flush()
+	err = rs.visitedWriter.Write([]string{repo.Owner, repo.Repo})
+	rs.visitedWriter.Flush()
 	if err != nil {
 		log.Fatalf("could not write to output file: %v", err)
 		return err
@@ -84,18 +84,19 @@ func (gs *RepositorySampler) Sample(handler func(Repository) error) error {
 	return nil
 }
 
-func (gs *RepositorySampler) sampleAndReturn() Repository {
-	gs.m.Lock()
-	defer gs.m.Unlock()
-	idx := rand.Intn(len(gs.unvisited))
-	repo := gs.unvisited[idx]
-	gs.unvisited = append(gs.unvisited[:idx], gs.unvisited[idx+1:]...)
+func (rs *RepositorySampler) sampleAndReturn() Repository {
+	rs.m.Lock()
+	defer rs.m.Unlock()
+	idx := rand.Intn(len(rs.unvisited))
+	repo := rs.unvisited[idx]
+	rs.unvisited[idx] = rs.unvisited[len(rs.unvisited)-1]
+	rs.unvisited = rs.unvisited[:len(rs.unvisited)-1]
 	return repo
 }
 
 // Close closes the file.
-func (gs *RepositorySampler) Close() error {
-	return gs.visitedFile.Close()
+func (rs *RepositorySampler) Close() error {
+	return rs.visitedFile.Close()
 }
 
 // readRepositoryList retrieves a set of repositories which have already been read from.
