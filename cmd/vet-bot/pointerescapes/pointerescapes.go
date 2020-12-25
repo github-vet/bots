@@ -188,6 +188,9 @@ func inspectSafeArgs(pass *analysis.Pass) (safeArgMap, map[callgraph.Signature]s
 		case *ast.CompositeLit:
 			// a pointer argument used inside a composite literal is marked unsafe.
 			fdec := outermostFuncDeclPos(stack)
+			if fdec == nil {
+				continue
+			}
 			if _, ok := safeArgs[fdec.Pos()]; ok {
 				if safeArgs.MarkUnsafe(fdec.Pos(), typed.Elts) {
 					writePtrSigs[callgraph.SignatureFromFuncDecl(fdec)] = struct{}{}
