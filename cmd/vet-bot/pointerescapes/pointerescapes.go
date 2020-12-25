@@ -3,6 +3,7 @@ package pointerescapes
 import (
 	"go/ast"
 	"go/token"
+	"log"
 	"reflect"
 
 	"github.com/github-vet/bots/cmd/vet-bot/callgraph"
@@ -118,6 +119,9 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	}
 
 	result.DangerGraph = callgraph.NewCallGraph()
+	for sig := range writesPtr {
+		result.DangerGraph.AddSignature(sig)
+	}
 
 	// Threads the notion of an 'unsafe pointer argument' through the call-graph, by performing a breadth-first search
 	// through the called-by graph, and marking unsafe caller arguments as we visit each call-site.
@@ -174,10 +178,12 @@ func inspectSafeArgs(pass *analysis.Pass) (safeArgMap, map[callgraph.Signature]s
 		case *ast.AssignStmt:
 			// a pointer argument used on the RHS of an assign statement is marked unsafe.
 			fdec := outermostFuncDeclPos(stack)
-			if _, ok := safeArgs[fdec.Pos()]; !ok {
+			if _, ok := safeArgs[fdec.Pos()]; ok {
 				if safeArgs.MarkUnsafe(fdec.Pos(), typed.Rhs) {
 					writePtrSigs[callgraph.SignatureFromFuncDecl(fdec)] = struct{}{}
 				}
+			} else {
+				log.Printf("sanity check failed: assign statement found before outer declaration of %v", callgraph.SignatureFromFuncDecl(fdec))
 			}
 		case *ast.CompositeLit:
 			// a pointer argument used inside a composite literal is marked unsafe.
@@ -186,6 +192,8 @@ func inspectSafeArgs(pass *analysis.Pass) (safeArgMap, map[callgraph.Signature]s
 				if safeArgs.MarkUnsafe(fdec.Pos(), typed.Elts) {
 					writePtrSigs[callgraph.SignatureFromFuncDecl(fdec)] = struct{}{}
 				}
+			} else {
+				log.Printf("sanity check failed: composite literal found before outer declaration of %v", callgraph.SignatureFromFuncDecl(fdec))
 			}
 		}
 		return true

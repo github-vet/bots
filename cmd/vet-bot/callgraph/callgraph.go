@@ -2,6 +2,7 @@ package callgraph
 
 import (
 	"errors"
+	"sync"
 )
 
 // CallGraph represents an approximate call-graph, relying only on the name and arity of each function.
@@ -19,6 +20,7 @@ type CallGraph struct {
 	signatureToId map[Signature]int
 	callGraph     map[int][]int
 	calledByGraph map[int][]int // lazily-constructed
+	mut           sync.Mutex
 }
 
 func resultToCallGraph(r Result) CallGraph {
@@ -146,6 +148,8 @@ func (cg *CallGraph) BFSWithStack(root Signature, visit func(sig Signature, stac
 // lazyInitCalledBy initializes the calledByGraph structure if it is nil. Not all applications will require
 // this graph, so it is constructed on-demand.
 func (cg *CallGraph) lazyInitCalledBy() {
+	cg.mut.Lock()
+	defer cg.mut.Unlock()
 	if cg.calledByGraph != nil {
 		return
 	}

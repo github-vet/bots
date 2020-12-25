@@ -222,7 +222,7 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 			return ReasonNone
 		}
 	}
-	reportBasic(pass, rangeLoop, ReasonCallMayWritePtr, n, id)
+	reportWritePtrSuspicion(pass, rangeLoop, callExpr, id)
 	return ReasonCallMayWritePtr
 }
 
@@ -242,13 +242,13 @@ func reportWritePtrSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, call
 	})
 
 	if err == callgraph.ErrSignatureMissing {
-		log.Printf("could not find root signature %v in callgraph; 3rd-party code suspected", sig)
+		// TODO: this is tripping during the devtest. Need to understand why.
+		log.Printf("writeptr: could not find root signature %v in callgraph; 3rd-party code suspected", sig)
 	}
-
 	pass.Report(analysis.Diagnostic{
 		Pos:     rangeLoop.Pos(),
 		End:     rangeLoop.End(),
-		Message: ReasonCallMaybeAsync.Message(id.Name, pass.Fset.Position(id.Pos())),
+		Message: ReasonCallMayWritePtr.Message(id.Name, pass.Fset.Position(id.Pos())),
 
 		Related: []analysis.RelatedInformation{
 			{Message: pass.Fset.File(call.Pos()).Name()},
@@ -274,7 +274,7 @@ func reportAsyncSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, call *a
 	})
 
 	if err == callgraph.ErrSignatureMissing {
-		log.Printf("could not find root signature %v in callgraph; 3rd-party code suspected", sig)
+		log.Printf("async: could not find root signature %v in callgraph; 3rd-party code suspected", sig)
 		// TODO?: report possible third-party code?
 	}
 
