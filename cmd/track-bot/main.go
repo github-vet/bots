@@ -216,12 +216,23 @@ const HighCommunityScoreThreshold = 2.5
 
 // UpdateCommunityAssessment updates the overall community assessment based on the reliability of all the users involved.
 func UpdateCommunityAssessment(bot *TrackBot, record *Issue, issue *github.Issue, reactions []*github.Reaction) {
+	reactionsPerGopher := make(map[string]string)
 	scores := make(map[string]float32)
 	for _, r := range reactions {
 		if !isValidReaction(r.GetContent()) {
 			continue
 		}
-		scores[r.GetContent()] += Score(bot.gophers, r.GetUser().GetLogin())
+		login := r.GetUser().GetLogin()
+		if reaction, ok := reactionsPerGopher[login]; ok {
+			// gopher left multiple reactions, don't count _any_ of them; and 'uncount' any previously added score.
+			if reaction != "LeftMultipleReactions" {
+				scores[reaction] -= Score(bot.gophers, login)
+				reactionsPerGopher[login] = "LeftMultipleReactions"
+			}
+			continue
+		}
+		reactionsPerGopher[login] = r.GetContent()
+		scores[r.GetContent()] += Score(bot.gophers, login)
 	}
 	totalScore := float32(0)
 	for _, score := range scores {
