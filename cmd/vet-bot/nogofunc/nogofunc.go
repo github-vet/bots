@@ -45,6 +45,8 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		(*ast.GoStmt)(nil),
 	}
 
+	// nogofunc finds a list of functions declared in the target repository which don't start any
+	// goroutines on their own. Calling into third-party code can be ignored
 	sigByPos := make(map[token.Pos]*signatureFacts)
 	for _, sig := range graph.Signatures {
 		sigByPos[sig.Pos] = &signatureFacts{sig, false}
