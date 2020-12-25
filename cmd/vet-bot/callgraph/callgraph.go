@@ -138,7 +138,10 @@ func (cg *CallGraph) BFSWithStack(root Signature, visit func(sig Signature, stac
 		visit(cg.signatures[curr.id], curr.stack)
 		for _, childID := range cg.callGraph[curr.id] {
 			if !visited[childID] {
-				frontier = append(frontier, frontierNode{childID, append(curr.stack, cg.signatures[childID])})
+				newStack := make([]Signature, len(curr.stack)+1)
+				copy(newStack, curr.stack)
+				newStack[len(newStack)-1] = cg.signatures[childID]
+				frontier = append(frontier, frontierNode{childID, newStack})
 			}
 		}
 	}
