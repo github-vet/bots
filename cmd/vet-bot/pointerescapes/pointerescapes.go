@@ -178,6 +178,9 @@ func inspectSafeArgs(pass *analysis.Pass) (safeArgMap, map[callgraph.Signature]s
 		case *ast.AssignStmt:
 			// a pointer argument used on the RHS of an assign statement is marked unsafe.
 			fdec := outermostFuncDeclPos(stack)
+			if fdec == nil {
+				return true
+			}
 			if _, ok := safeArgs[fdec.Pos()]; ok {
 				if safeArgs.MarkUnsafe(fdec.Pos(), typed.Rhs) {
 					writePtrSigs[callgraph.SignatureFromFuncDecl(fdec)] = struct{}{}
@@ -189,7 +192,7 @@ func inspectSafeArgs(pass *analysis.Pass) (safeArgMap, map[callgraph.Signature]s
 			// a pointer argument used inside a composite literal is marked unsafe.
 			fdec := outermostFuncDeclPos(stack)
 			if fdec == nil {
-				continue
+				return true
 			}
 			if _, ok := safeArgs[fdec.Pos()]; ok {
 				if safeArgs.MarkUnsafe(fdec.Pos(), typed.Elts) {
