@@ -26,14 +26,15 @@ var Analyzer = &analysis.Analyzer{
 
 // Result is the result of the nogofunc analyzer.
 type Result struct {
-	// SyncSignatures is a set of signature which are guaranteed not to start any goroutines.
-	SyncSignatures map[callgraph.Signature]struct{}
+	// AsyncSignatures is a set of signatures from which a goroutine can be reached in the callgraph
+	// via functions that accept pointer arguments.
+	AsyncSignatures map[callgraph.Signature]struct{}
 	// ContainsGoStmt is a set of signatures whose declarations contain a go statement.
 	ContainsGoStmt map[callgraph.Signature]struct{}
 }
 
 type signatureFacts struct {
-	callgraph.SignaturePos
+	callgraph.DeclaredSignature
 	StartsGoroutine bool
 }
 
@@ -48,7 +49,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	// nogofunc finds a list of functions declared in the target repository which don't start any
 	// goroutines on their own. Calling into third-party code can be ignored
 	sigByPos := make(map[token.Pos]*signatureFacts)
-	for _, sig := range graph.Signatures {
+	for _, sig := range graph.PtrSignatures {
 		sigByPos[sig.Pos] = &signatureFacts{sig, false}
 	}
 
@@ -60,48 +61,41 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		switch n.(type) {
 		case *ast.GoStmt: // goroutine here could be nested inside a function literal; we count it anyway.
 			outerFunc := outermostFuncDecl(stack)
-			if outerFunc != nil {
+			if outerFunc != nil && sigByPos[outerFunc.Pos()] != nil {
 				sigByPos[outerFunc.Pos()].StartsGoroutine = true
 			}
 		}
 		return true
 	})
 
-	result.ContainsGoStmt, result.SyncSignatures = findSyncSignatures(sigByPos, graph.ApproxCallGraph)
+	result.ContainsGoStmt, result.AsyncSignatures = findAsyncSignatures(sigByPos, graph.ApproxCallGraph)
 	return &result, nil
 }
 
-// findSyncSignatures finds a list of Signatures for functions which do not call goroutines or call functions which
-// call goroutines.
-func findSyncSignatures(sigs map[token.Pos]*signatureFacts, graph *callgraph.CallGraph) (map[callgraph.Signature]struct{}, map[callgraph.Signature]struct{}) {
+// findAsyncSignatures finds a list of Signatures for functions which eventually call a goroutine via some path
+// of functions in the callgraph that can pass pointer arguments.
+func findAsyncSignatures(sigs map[token.Pos]*signatureFacts, graph *callgraph.CallGraph) (map[callgraph.Signature]struct{}, map[callgraph.Signature]struct{}) {
 	var toCheck []callgraph.Signature
 	startsGoroutine := make(map[callgraph.Signature]struct{})
-	unsafe := make(map[callgraph.Signature]struct{})
 	for _, sig := range sigs {
 		if sig.StartsGoroutine {
 			startsGoroutine[sig.Signature] = struct{}{}
-			unsafe[sig.Signature] = struct{}{}
 		} else {
 			toCheck = append(toCheck, sig.Signature)
 		}
 	}
-	// any function which calls a function that starts a goroutine is potentially unsafe. We run a BFS over the called-by
-	// graph starting from the functions which start goroutines. Any function they are called by is marked as unsafe.
-	unsafeNodes := make([]callgraph.Signature, 0, len(unsafe))
-	for sig := range unsafe {
-		unsafeNodes = append(unsafeNodes, sig)
+	// run a BFS over the called-by graph starting from the functions which start goroutines. Any function they
+	// are called by is also marked as unsafe.
+	unsafeRoots := make([]callgraph.Signature, 0, len(startsGoroutine))
+	for sig := range startsGoroutine {
+		unsafeRoots = append(unsafeRoots, sig)
 	}
-	graph.CalledByBFS(unsafeNodes, func(sig callgraph.Signature) {
-		unsafe[sig] = struct{}{}
+
+	asyncSignatures := make(map[callgraph.Signature]struct{})
+	graph.CalledByBFS(unsafeRoots, func(sig callgraph.Signature) {
+		asyncSignatures[sig] = struct{}{}
 	})
-	// remove all unsafe signatures from the list of results
-	syncSignatures := make(map[callgraph.Signature]struct{})
-	for _, sig := range toCheck {
-		if _, ok := unsafe[sig]; !ok {
-			syncSignatures[sig] = struct{}{}
-		}
-	}
-	return startsGoroutine, syncSignatures
+	return startsGoroutine, asyncSignatures
 }
 
 func outermostFuncDecl(stack []ast.Node) *ast.FuncDecl {
