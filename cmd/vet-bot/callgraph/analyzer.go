@@ -23,7 +23,8 @@ var Analyzer = &analysis.Analyzer{
 
 // Result is the result of the callgraph analyzer.
 type Result struct {
-	// PtrSignatures contains a record for each declared function signature found during analysis.
+	// PtrSignatures contains a record for each declared function signature found to contain a pointer
+	// during analysis.
 	PtrSignatures []DeclaredSignature
 	// PtrCalls contains a record for each function call to a function with a pointer signature found
 	// during analysis.
