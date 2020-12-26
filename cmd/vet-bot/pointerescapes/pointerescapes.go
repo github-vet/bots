@@ -96,7 +96,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	// handle naming collisions due to use of an approximate call-graph. We can only track
 	// pointer arguments accurately when all colliding signatures share a pointer argument in
 	// the same position.
-	signaturesByPos := signaturesByPos(graph.Signatures)
+	signaturesByPos := signaturesByPos(graph.PtrSignatures)
 	for pos, args := range safeArgs {
 		sig := signaturesByPos[pos].Signature
 		if _, ok := result.SafePtrs[sig]; ok {
@@ -112,7 +112,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 
 	// add signatures for any calls whose declarations are not part of the source;
 	// none of their pointer arguments are considered safe, since we can't say what the functions do.
-	for _, decl := range graph.Calls {
+	for _, decl := range graph.PtrCalls {
 		if _, ok := result.SafePtrs[decl.Signature]; !ok {
 			result.SafePtrs[decl.Signature] = nil
 		}
@@ -127,7 +127,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	// through the called-by graph, and marking unsafe caller arguments as we visit each call-site.
 	// In event of a naming collision, if a pointer in any of the declarations is considered unsafe, it gets marked as
 	// such in all instances.
-	callsBySignature := callsBySignature(graph.Calls)
+	callsBySignature := callsBySignature(graph.PtrCalls)
 	graph.ApproxCallGraph.CalledByBFS(graph.ApproxCallGraph.CalledByRoots(), func(callSig callgraph.Signature) {
 		// loop over all calls with a matching signature and, if they use a pointer from their caller in an
 		// unsafe position, mark the pointer from the caller unsafe also.
@@ -226,8 +226,8 @@ func callsBySignature(calls []callgraph.Call) map[callgraph.Signature][]callgrap
 	return result
 }
 
-func signaturesByPos(signatures []callgraph.SignaturePos) map[token.Pos]callgraph.SignaturePos {
-	result := make(map[token.Pos]callgraph.SignaturePos)
+func signaturesByPos(signatures []callgraph.DeclaredSignature) map[token.Pos]callgraph.DeclaredSignature {
+	result := make(map[token.Pos]callgraph.DeclaredSignature)
 	for _, sig := range signatures {
 		result[sig.Pos] = sig
 	}

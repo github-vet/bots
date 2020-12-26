@@ -33,7 +33,7 @@ type Result struct {
 }
 
 type signatureFacts struct {
-	callgraph.SignaturePos
+	callgraph.DeclaredSignature
 	StartsGoroutine bool
 }
 
@@ -48,7 +48,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	// nogofunc finds a list of functions declared in the target repository which don't start any
 	// goroutines on their own. Calling into third-party code can be ignored
 	sigByPos := make(map[token.Pos]*signatureFacts)
-	for _, sig := range graph.Signatures {
+	for _, sig := range graph.PtrSignatures {
 		sigByPos[sig.Pos] = &signatureFacts{sig, false}
 	}
 
@@ -60,7 +60,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		switch n.(type) {
 		case *ast.GoStmt: // goroutine here could be nested inside a function literal; we count it anyway.
 			outerFunc := outermostFuncDecl(stack)
-			if outerFunc != nil {
+			if outerFunc != nil && sigByPos[outerFunc.Pos()] != nil {
 				sigByPos[outerFunc.Pos()].StartsGoroutine = true
 			}
 		}
