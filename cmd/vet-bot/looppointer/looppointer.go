@@ -40,7 +40,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 
 	inspect.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
 		reason := search.check(n, stack, pass)
-		return reason == ReasonNone // TODO: don't stop on first hit
+		return reason == ReasonNone // TODO: don't stop on first hit; this requires a way to aggregate multiple results into one issue description.
 	})
 
 	return nil, nil
@@ -64,6 +64,8 @@ const (
 	ReasonCallMayWritePtr
 	// ReasonCallMaybeAsync indicates some function call taking a reference to a range loop variable may start a Goroutine.
 	ReasonCallMaybeAsync
+	// ReasonCallPassesToThirdParty indicates some function call passes a pointer to third-party code
+	ReasonCallPassesToThirdParty
 )
 
 // Message returns a human-readable message, provided the name of the varaible and
@@ -76,6 +78,8 @@ func (r Reason) Message(name string, pos token.Position) string {
 		return fmt.Sprintf("function call at line %d may store a reference to %s", pos.Line, name)
 	case ReasonCallMaybeAsync:
 		return fmt.Sprintf("function call which takes a reference to %s at line %d may start a goroutine", name, pos.Line)
+	case ReasonCallPassesToThirdParty:
+		return fmt.Sprintf("function call at line %d passes reference to %s to third-party code", pos.Line, name)
 	default:
 		return ""
 	}
@@ -172,7 +176,7 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 
 	// TODO: encapsulate the two following cases into separate functions to make the logic here clearer.
 
-	// If the identity is used in an AssignStmt, it must be on the right-hand side of a '=' token by itself
+	// If the identity is used in an AssignStmt directly, we must report that.
 	if assignStmt != nil {
 		// if the assignment is immediately followed by return or breaks out of the range loop, no harm can
 		// be done by the assignment as the range-loop variable will never be updated again.
@@ -188,22 +192,29 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 		}
 		return ReasonNone
 	}
+
+	// TODO: If the identity is used in a CompositeLit directly, we must report that.
+
 	// unaryExpr occurred in a CallExpr
+	if len(callExpr.Args) == 0 {
+		log.Println("sanity check failed: UnaryExpr 'occurred' inside a CallExpr with zero arguments")
+	}
 
 	// check if CallExpr is acceptlisted, ignore it if so.
 	if acceptlist.GlobalAcceptList != nil {
 		packageResolver := pass.ResultOf[packid.Analyzer].(*packid.PackageResolver)
-		if acceptlist.GlobalAcceptList.IgnoreCall(packageResolver, callExpr, stack) {
+		if acceptlist.IgnoreCall(packageResolver, callExpr, stack) {
 			return ReasonNone
 		}
 	}
 
 	// certain call expressions are safe.
-	syncFuncs := pass.ResultOf[nogofunc.Analyzer].(*nogofunc.Result).SyncSignatures
+	asyncFuncs := pass.ResultOf[nogofunc.Analyzer].(*nogofunc.Result).AsyncSignatures
 	safePtrs := pass.ResultOf[pointerescapes.Analyzer].(*pointerescapes.Result).SafePtrs
 
 	sig := callgraph.SignatureFromCallExpr(callExpr)
-	if _, ok := syncFuncs[sig]; !ok {
+
+	if _, ok := asyncFuncs[sig]; ok {
 		reportAsyncSuspicion(pass, rangeLoop, callExpr, id)
 		return ReasonCallMaybeAsync
 	}
@@ -215,43 +226,59 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 		}
 	}
 	if callIdx == -1 {
-		return ReasonNone
+		return ReasonNone // no matching argument was found; unary Expr was nested more deeply.
 	}
 	for _, safeIdx := range safePtrs[sig] {
 		if callIdx == safeIdx {
-			return ReasonNone
+			return ReasonNone // we know passing a pointer in this position is safe.
 		}
 	}
-	reportWritePtrSuspicion(pass, rangeLoop, callExpr, id)
+	reportEscapedPtrSuspicion(pass, rangeLoop, callExpr, id)
 	return ReasonCallMayWritePtr
 }
 
-// reportWritePtrSuspicion validates the suspicion and also reports the finding that a function may write a
-// pointer.
-func reportWritePtrSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, call *ast.CallExpr, id *ast.Ident) {
+// reportEscapedPtrSuspicion validates the suspicion and also reports when a function may allow its pointer argument
+// to escape in some manner.
+func reportEscapedPtrSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, call *ast.CallExpr, id *ast.Ident) {
 	dangerGraph := &pass.ResultOf[pointerescapes.Analyzer].(*pointerescapes.Result).DangerGraph
 	writesPtr := pass.ResultOf[pointerescapes.Analyzer].(*pointerescapes.Result).WritesPtr
+	thirdPartyPtrPassed := pass.ResultOf[pointerescapes.Analyzer].(*pointerescapes.Result).ThirdPartyPtrPassed
 
 	sig := callgraph.SignatureFromCallExpr(call)
-	sigGraph := make(map[string]map[string]struct{})
+	ptrWriteGraph := make(map[string]map[string]struct{})
+	thirdPartyGraph := make(map[string]map[string]struct{})
 
+	var reason Reason
 	err := dangerGraph.BFSWithStack(sig, func(sig callgraph.Signature, stack []callgraph.Signature) {
 		if _, ok := writesPtr[sig]; ok {
-			addPathToGraph(sigGraph, stack)
+			reason = ReasonCallMayWritePtr
+			addPathToGraph(ptrWriteGraph, stack)
+		}
+		if _, ok := thirdPartyPtrPassed[sig]; ok {
+			reason = ReasonCallPassesToThirdParty
+			addPathToGraph(thirdPartyGraph, stack)
 		}
 	})
 
+	var thirdPartyReport string
 	if err == callgraph.ErrSignatureMissing {
-		log.Printf("writeptr: could not find root signature %v in callgraph; 3rd-party code suspected", sig)
+		thirdPartyReport = fmt.Sprintf("root signature %v was not found in the callgraph; reference was passed directly to third-party code", sig)
 	}
+
+	report := strings.Join([]string{
+		reportPathGraph(ptrWriteGraph, "function which writes a pointer argument"),
+		reportPathGraph(thirdPartyGraph, "function which passes a pointer to third-party code"),
+		thirdPartyReport,
+	}, "\n")
+
 	pass.Report(analysis.Diagnostic{
 		Pos:     rangeLoop.Pos(),
 		End:     rangeLoop.End(),
-		Message: ReasonCallMayWritePtr.Message(id.Name, pass.Fset.Position(id.Pos())),
+		Message: reason.Message(id.Name, pass.Fset.Position(id.Pos())),
 
 		Related: []analysis.RelatedInformation{
 			{Message: pass.Fset.File(call.Pos()).Name()},
-			{Message: reportPathGraph(sigGraph, "function which writes a pointer argument")},
+			{Message: report},
 		},
 	})
 }
@@ -273,7 +300,7 @@ func reportAsyncSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, call *a
 	})
 
 	if err == callgraph.ErrSignatureMissing {
-		log.Printf("async: could not find root signature %v in callgraph; 3rd-party code suspected", sig)
+		log.Printf("async: could not find root signature %v in callgraph; suspect pointer passed directly to 3rd-party code", sig)
 		// TODO?: report possible third-party code?
 	}
 
@@ -307,13 +334,15 @@ func addPathToGraph(graph map[string]map[string]struct{}, path []callgraph.Signa
 
 func reportPathGraph(pathGraph map[string]map[string]struct{}, badFuncPhrase string) string {
 	var sb strings.Builder
-	sb.WriteString("The following dot graph describes paths through the callgraph that could lead to a ")
-	sb.WriteString(badFuncPhrase)
-	sb.WriteString(":\n")
 	if len(pathGraph) == 0 {
-		sb.WriteString("\tno paths found; call may have ended in third-party code; stay tuned for diagnostics")
+		sb.WriteString("No path was found through the callgraph that could lead to a ")
+		sb.WriteString(badFuncPhrase)
+		sb.WriteString(".\n")
 		return sb.String()
 	}
+	sb.WriteString("The following graphviz dot graph describes paths through the callgraph that could lead to a ")
+	sb.WriteString(badFuncPhrase)
+	sb.WriteString(":\n")
 	sb.WriteString("digraph G {\n")
 	for from, neighbors := range pathGraph {
 		fmt.Fprintf(&sb, `  "%s" -> {`, from)

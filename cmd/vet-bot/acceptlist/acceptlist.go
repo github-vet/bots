@@ -51,8 +51,8 @@ func AcceptListFromFile(path string) (AcceptList, error) {
 }
 
 // IgnoreCall returns true iff the provided callExpr matches the package of a whitelisted call.
-func (al AcceptList) IgnoreCall(pr *packid.PackageResolver, callExpr *ast.CallExpr, stack []ast.Node) bool {
-	if al.Accept == nil {
+func IgnoreCall(pr *packid.PackageResolver, callExpr *ast.CallExpr, stack []ast.Node) bool {
+	if GlobalAcceptList == nil || GlobalAcceptList.Accept == nil {
 		return false
 	}
 	fun, ok := callExpr.Fun.(*ast.SelectorExpr)
@@ -63,7 +63,7 @@ func (al AcceptList) IgnoreCall(pr *packid.PackageResolver, callExpr *ast.CallEx
 	if err != nil {
 		return false
 	}
-	acceptFuncs, ok := al.Accept[pkg]
+	acceptFuncs, ok := GlobalAcceptList.Accept[pkg]
 	if !ok {
 		return false
 	}

@@ -20,8 +20,7 @@ func TestAcceptListFromFile(t *testing.T) {
 }
 
 func TestZeroValue(t *testing.T) { // not technically whitebox
-	zero := AcceptList{}
 	assert.NotPanics(t, func() {
-		zero.IgnoreCall(&packid.PackageResolver{}, nil, nil)
+		IgnoreCall(&packid.PackageResolver{}, nil, nil)
 	})
 }

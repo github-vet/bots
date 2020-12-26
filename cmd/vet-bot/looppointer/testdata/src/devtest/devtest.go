@@ -20,6 +20,15 @@ func main() {
 	for _, y := range []int{1} { // want `function call at line 21 may store a reference to y`
 		unsafeCallsAWriteViaPointerLabyrinth(&y)
 	}
+	for _, w := range []int{1} {
+		safe(&w)
+	}
+	for _, x := range []int{1} { // want `function call at line 27 passes reference to x to third-party code`
+		callThirdParty(&x)
+	}
+	for _, y := range []int{1} {
+		callThirdPartyAcceptListed(&y)
+	}
 }
 
 type A struct {
@@ -59,6 +68,19 @@ func (a *A) safe(x string, y *int) *int {
 
 func unsafeCallsAWrite(a A, x *int) {
 	a.unsafeWrites(x, x)
+}
+
+func safe(x *int) {
+	safe1(x)
+}
+func safe1(x *int) {
+	safe2(*x)
+}
+
+// callgraph should be cut off here, since safe2 does not pass a pointer.
+func safe2(x int) {
+	unsafeAsync(&x)
+	unsafeCallsAWriteViaPointerLabyrinth(&x)
 }
 
 func unsafeAsync(x *int) {
@@ -101,4 +123,28 @@ func writePtr(x *int) {
 	var y *int
 	y = x // 'write' is triggered here
 	fmt.Println(y)
+}
+
+func callThirdParty(x *int) {
+	callThirdParty1(x)
+}
+
+func callThirdParty1(x *int) {
+	callThirdParty2(x)
+}
+
+func callThirdParty2(x *int) {
+	fmt.Println(x) // fmt.Println is not accept-listed;
+}
+
+func callThirdPartyAcceptListed(x *int) {
+	callThirdPartyAcceptListed1(x)
+}
+
+func callThirdPartyAcceptListed1(x *int) {
+	callThirdPartyAcceptListed2(x)
+}
+
+func callThirdPartyAcceptListed2(x *int) {
+	fmt.Printf(x) // fmt.Printf *is* accept-listed;
 }
