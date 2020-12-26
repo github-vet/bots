@@ -29,6 +29,26 @@ func main() {
 	for _, y := range []int{1} {
 		callThirdPartyAcceptListed(&y)
 	}
+	var y UnsafeStruct
+	for _, x := range []int{1, 2, 3} { // want `reference to x was used in a composite literal at line 34`
+		y = UnsafeStruct{&x}
+	}
+	for _, y := range []int{1} { // want `reference to y was used in a composite literal at line 37`
+		useUnsafeStruct(UnsafeStruct{&y})
+	}
+	var x *int
+	for _, z := range []int{1} { // want `reference to z is reassigned at line 41`
+		x = &z
+	}
+	fmt.Println(x, y) // for use
+}
+
+func useUnsafeStruct(x UnsafeStruct) {
+	fmt.Println(x)
+}
+
+type UnsafeStruct struct {
+	x *int
 }
 
 type A struct {
@@ -146,5 +166,5 @@ func callThirdPartyAcceptListed1(x *int) {
 }
 
 func callThirdPartyAcceptListed2(x *int) {
-	fmt.Printf(x) // fmt.Printf *is* accept-listed;
+	fmt.Printf("%v", x) // fmt.Printf *is* accept-listed;
 }

@@ -66,6 +66,8 @@ const (
 	ReasonCallMaybeAsync
 	// ReasonCallPassesToThirdParty indicates some function call passes a pointer to third-party code
 	ReasonCallPassesToThirdParty
+	// ReasonPointerStoredInCompositeLit indicates a pointer to a range-loop variable was used in a composite literal.
+	ReasonPointerStoredInCompositeLit
 )
 
 // Message returns a human-readable message, provided the name of the varaible and
@@ -80,6 +82,8 @@ func (r Reason) Message(name string, pos token.Position) string {
 		return fmt.Sprintf("function call which takes a reference to %s at line %d may start a goroutine", name, pos.Line)
 	case ReasonCallPassesToThirdParty:
 		return fmt.Sprintf("function call at line %d passes reference to %s to third-party code", pos.Line, name)
+	case ReasonPointerStoredInCompositeLit:
+		return fmt.Sprintf("reference to %s was used in a composite literal at line %d", name, pos.Line)
 	default:
 		return ""
 	}
@@ -123,9 +127,9 @@ func (s *Searcher) innermostLoop(stack []ast.Node) *ast.RangeStmt {
 	return nil
 }
 
-// assignStmt returns the most recent assign statement, along with the child expression
+// innermostAssignStmt returns the most recent assign statement, along with the child expression
 // from the stack.
-func (s *Searcher) assignStmt(stack []ast.Node) (*ast.AssignStmt, ast.Node) {
+func innermostAssignStmt(stack []ast.Node) (*ast.AssignStmt, ast.Node) {
 	for i := len(stack) - 1; i >= 0; i-- {
 		if typed, ok := stack[i].(*ast.AssignStmt); ok {
 			return typed, stack[i+1]
@@ -134,9 +138,18 @@ func (s *Searcher) assignStmt(stack []ast.Node) (*ast.AssignStmt, ast.Node) {
 	return nil, nil
 }
 
-func (s *Searcher) callExpr(stack []ast.Node) *ast.CallExpr {
+func innermostCallExpr(stack []ast.Node) *ast.CallExpr {
 	for i := len(stack) - 1; i >= 0; i-- {
 		if typed, ok := stack[i].(*ast.CallExpr); ok {
+			return typed
+		}
+	}
+	return nil
+}
+
+func innermostCompositeLit(stack []ast.Node) *ast.CompositeLit {
+	for i := len(stack) - 1; i >= 0; i-- {
+		if typed, ok := stack[i].(*ast.CompositeLit); ok {
 			return typed
 		}
 	}
@@ -166,15 +179,18 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 	}
 	rangeLoop := s.Stats[id.Obj.Pos()]
 
-	// If the identity is not used in an assignment or call expression, it
-	// will not be reported.
-	assignStmt, child := s.assignStmt(stack)
-	callExpr := s.callExpr(stack)
-	if assignStmt == nil && callExpr == nil {
-		return ReasonNone
+	// TODO: encapsulate the following cases into separate functions to make the logic clearer.
+
+	// TODO: If the identity is used in a CompositeLit directly, we must report that.
+	compositeLit := innermostCompositeLit(stack)
+	if compositeLit != nil {
+		reportBasic(pass, rangeLoop, ReasonPointerStoredInCompositeLit, id)
+		return ReasonPointerStoredInCompositeLit
 	}
 
-	// TODO: encapsulate the two following cases into separate functions to make the logic here clearer.
+	// If the identity is not used in an assignment, call expression, or composite literal it
+	// will not be reported.
+	assignStmt, child := innermostAssignStmt(stack)
 
 	// If the identity is used in an AssignStmt directly, we must report that.
 	if assignStmt != nil {
@@ -186,15 +202,17 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 		}
 		for _, expr := range assignStmt.Rhs {
 			if expr.Pos() == child.Pos() && child.Pos() == n.Pos() {
-				reportBasic(pass, rangeLoop, ReasonPointerReassigned, n, id)
+				reportBasic(pass, rangeLoop, ReasonPointerReassigned, id)
 				return ReasonPointerReassigned
 			}
 		}
 		return ReasonNone
 	}
 
-	// TODO: If the identity is used in a CompositeLit directly, we must report that.
-
+	callExpr := innermostCallExpr(stack)
+	if callExpr == nil {
+		return ReasonNone
+	}
 	// unaryExpr occurred in a CallExpr
 	if len(callExpr.Args) == 0 {
 		log.Println("sanity check failed: UnaryExpr 'occurred' inside a CallExpr with zero arguments")
@@ -356,14 +374,14 @@ func reportPathGraph(pathGraph map[string]map[string]struct{}, badFuncPhrase str
 }
 
 // TODO: remove this function and make it more specific....
-func reportBasic(pass *analysis.Pass, rangeLoop *ast.RangeStmt, reason Reason, n ast.Node, id *ast.Ident) {
+func reportBasic(pass *analysis.Pass, rangeLoop *ast.RangeStmt, reason Reason, id *ast.Ident) {
 	pass.Report(analysis.Diagnostic{
 		Pos:     rangeLoop.Pos(),
 		End:     rangeLoop.End(),
 		Message: reason.Message(id.Name, pass.Fset.Position(id.Pos())),
 
 		Related: []analysis.RelatedInformation{
-			{Message: pass.Fset.File(n.Pos()).Name()},
+			{Message: pass.Fset.File(id.Pos()).Name()},
 		},
 	})
 }
