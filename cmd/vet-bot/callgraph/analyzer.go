@@ -3,10 +3,9 @@ package callgraph
 import (
 	"go/ast"
 	"go/token"
+	"log"
 	"reflect"
 
-	"github.com/github-vet/bots/cmd/vet-bot/acceptlist"
-	"github.com/github-vet/bots/cmd/vet-bot/packid"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -18,16 +17,17 @@ var Analyzer = &analysis.Analyzer{
 	Doc:              "computes an approximate callgraph based on function arity, name, and nothing else",
 	Run:              run,
 	RunDespiteErrors: true,
-	Requires:         []*analysis.Analyzer{inspect.Analyzer, packid.Analyzer},
+	Requires:         []*analysis.Analyzer{inspect.Analyzer},
 	ResultType:       reflect.TypeOf((*Result)(nil)),
 }
 
 // Result is the result of the callgraph analyzer.
 type Result struct {
-	// Signatures contains a record for each declared function signature found during analysis.
-	Signatures []SignaturePos
-	// Calls contains a record for each function call found during analysis.
-	Calls []Call
+	// PtrSignatures contains a record for each declared function signature found during analysis.
+	PtrSignatures []DeclaredSignature
+	// PtrCalls contains a record for each function call to a function with a pointer signature found
+	// during analysis.
+	PtrCalls []Call
 	// ApproxCallGraph contains the approximate call graph computed by the analyzer.
 	ApproxCallGraph *CallGraph
 }
@@ -37,7 +37,7 @@ type Result struct {
 type Call struct {
 	Signature
 	// Caller is the signature and position of the function which makes this call.
-	Caller SignaturePos
+	Caller DeclaredSignature
 	// Pos is the source position of the call.
 	Pos token.Pos
 	// ArgDeclPos contains the source positions of the declaration of each call's arguments in order.
@@ -51,8 +51,8 @@ type Signature struct {
 	Arity int
 }
 
-// SignaturePos is a signature along with the position of its declaration.
-type SignaturePos struct {
+// DeclaredSignature is a signature along with the position of its declaration.
+type DeclaredSignature struct {
 	Signature
 	Pos token.Pos
 }
@@ -60,57 +60,91 @@ type SignaturePos struct {
 func run(pass *analysis.Pass) (interface{}, error) {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
-	nodeFilter := []ast.Node{
-		(*ast.FuncDecl)(nil),
-		(*ast.CallExpr)(nil),
-	}
-
-	packageResolver := pass.ResultOf[packid.Analyzer].(*packid.PackageResolver)
 	result := Result{}
-	inspect.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
+	ptrDeclSigs := make(map[Signature]struct{}) // set of signatures with a declaration containing a pointer
+
+	// first pass grabs all declared functions which include pointers in their signatures.
+	declFilter := []ast.Node{
+		(*ast.FuncDecl)(nil),
+	}
+	inspect.Nodes(declFilter, func(n ast.Node, push bool) bool {
 		if !push {
 			return true
 		}
-		switch typed := n.(type) {
-		case *ast.FuncDecl:
-			sig := parseSignature(typed)
-			result.Signatures = append(result.Signatures, sig)
-		case *ast.CallExpr:
-			if acceptlist.GlobalAcceptList != nil &&
-				acceptlist.GlobalAcceptList.IgnoreCall(packageResolver, typed, stack) {
-				return true
-			}
-			call := parseCall(typed, stack)
-			result.Calls = append(result.Calls, call)
+		decl, ok := n.(*ast.FuncDecl)
+		if !ok {
+			log.Fatalf("node filter %v was a lie", declFilter)
+		}
+		parsedSig := parseFuncDecl(decl)
+		if funcDeclTakesPointers(decl) {
+			ptrDeclSigs[parsedSig.Signature] = struct{}{}
+			result.PtrSignatures = append(result.PtrSignatures, parsedSig)
 		}
 		return true
 	})
 
+	// second pass retrieves all calls which can match some declared function with a pointer in its
+	// signature.
+	callFilter := []ast.Node{
+		(*ast.CallExpr)(nil),
+	}
+	inspect.WithStack(callFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
+		if !push {
+			return true
+		}
+		callExpr, ok := n.(*ast.CallExpr)
+		if !ok {
+			log.Fatalf("node filter %v was a lie", callFilter)
+		}
+		if _, ok := ptrDeclSigs[SignatureFromCallExpr(callExpr)]; ok {
+			parsedCall := parseCallExpr(callExpr, stack)
+			result.PtrCalls = append(result.PtrCalls, parsedCall)
+		}
+		return true
+	})
+
+	// construct the callgraph and return
 	cg := resultToCallGraph(result)
 	result.ApproxCallGraph = &cg
 	return &result, nil
 }
 
-// parseSignature retrieves a SignaturePos from a FuncDecl.
-func parseSignature(fdec *ast.FuncDecl) SignaturePos {
-	result := SignaturePos{Pos: fdec.Pos()}
+// parseFuncDecl retrieves a DeclaredSignature from a FuncDecl
+func parseFuncDecl(fdec *ast.FuncDecl) DeclaredSignature {
+	result := DeclaredSignature{Pos: fdec.Pos()}
 	result.Name = fdec.Name.Name
 	if fdec.Type.Params != nil {
-		for _, x := range fdec.Type.Params.List {
-			result.Arity += len(x.Names)
+		for _, param := range fdec.Type.Params.List {
+			result.Arity += len(param.Names)
 		}
 
 	}
 	return result
 }
 
-// parseCall retrieves relevant information about a function call, including its signature
-// and the signature of the package-level function in which it appears.
-func parseCall(call *ast.CallExpr, stack []ast.Node) Call {
-	result := Call{Pos: call.Pos()}
+func funcDeclTakesPointers(fdec *ast.FuncDecl) bool {
+	if fdec.Type.Params == nil {
+		return false
+	}
+	result := false
+	for _, param := range fdec.Type.Params.List {
+		if _, ok := param.Type.(*ast.StarExpr); ok {
+			result = true
+		}
+	}
+	return result
+}
+
+// parseCallExpr retrieves relevant information about a function call, including its signature
+// and the signature of the function declaration in which it appears.
+func parseCallExpr(call *ast.CallExpr, stack []ast.Node) Call {
+	result := Call{
+		Signature: SignatureFromCallExpr(call),
+		Pos:       call.Pos(),
+	}
 	outerFunc := outermostFuncDecl(stack)
 	if outerFunc != nil {
-		result.Caller = parseSignature(outerFunc)
+		result.Caller = parseFuncDecl(outerFunc)
 	}
 	result.Arity = len(call.Args)
 	switch typed := call.Fun.(type) {
@@ -124,9 +158,10 @@ func parseCall(call *ast.CallExpr, stack []ast.Node) Call {
 		id, ok := arg.(*ast.Ident)
 		if !ok || id.Obj == nil {
 			// id.Obj == nil when the argument in the call doesn't have any 'type information'. However,
-			// any argument coming straight from the function declaration will have type information
-			// associated with it after parsing is complete. Since we're only interested in checking when
-			// a pointer from one function is passed straight to the next; we can skip such arguments.
+			// any argument coming straight from the function declaration has type information associated
+			// with it after parsing is complete. Since we're only interested in checking when a pointer
+			// from one function is passed straight to the next; we can skip arguments where
+			// id.Obj == nil
 			result.ArgDeclPos = append(result.ArgDeclPos, token.NoPos)
 			continue
 		}
@@ -160,5 +195,5 @@ func SignatureFromCallExpr(call *ast.CallExpr) Signature {
 
 // SignatureFromFuncDecl retrieves a signature from the provided FuncDecl.
 func SignatureFromFuncDecl(fdec *ast.FuncDecl) Signature {
-	return parseSignature(fdec).Signature
+	return parseFuncDecl(fdec).Signature
 }

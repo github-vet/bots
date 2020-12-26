@@ -25,7 +25,7 @@ type CallGraph struct {
 
 func resultToCallGraph(r Result) CallGraph {
 	result := NewCallGraph()
-	for _, call := range r.Calls {
+	for _, call := range r.PtrCalls {
 		callerID := result.AddSignature(call.Caller.Signature)
 		callID := result.AddSignature(call.Signature)
 		result.AddCall(callerID, callID)
