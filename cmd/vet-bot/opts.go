@@ -13,6 +13,7 @@ type opts struct {
 	IssuesFile     string
 	ReposFile      string
 	VisitedFile    string
+	StatsFile      string
 	TargetOwner    string
 	TargetRepo     string
 	SingleOwner    string
@@ -42,6 +43,8 @@ type OptSchema struct {
 var optSchemas []OptSchema = []OptSchema{
 	{"GITHUB_TOKEN", "token", "GitHub access token", "", true,
 		func(o *opts, value string) error { o.GithubToken = value; return nil }, ""},
+	{"STATS_FILE", "stats", "path to stats CSV file", "stats.csv", false,
+		func(o *opts, value string) error { o.StatsFile = value; return nil }, ""},
 	{"TRACKING_FILE", "issues", "path to issues CSV file", "issues.csv", false,
 		func(o *opts, value string) error { o.IssuesFile = value; return nil }, ""},
 	{"REPOS_FILE", "repos", "path to repos CSV file", "repos.csv", false,

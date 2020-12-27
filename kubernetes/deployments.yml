@@ -45,6 +45,8 @@ spec:
           #   value: /data/repos.csv
           - name: VISITED_FILE
             value: /data/visited_repos.csv
+          - name: STATS_FILE
+            value: /data/stats.csv
           - name: GITHUB_REPO
             value: github-vet/rangeloop-pointer-findings
           - name: ACCEPT_LIST_FILE

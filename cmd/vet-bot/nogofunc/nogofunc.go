@@ -7,17 +7,18 @@ import (
 
 	"github.com/github-vet/bots/cmd/vet-bot/callgraph"
 	"github.com/github-vet/bots/cmd/vet-bot/packid"
+	"github.com/github-vet/bots/cmd/vet-bot/stats"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
 )
 
-// Analyzer provides a set of function signatures whose invocations definitely do not start any
-// goroutines. False-positives should be expected, as no type-checking information is used during the
+// Analyzer provides a set of function signatures whose invocations start a goroutine.
+// False-positives should be expected, as no type-checking information is used during the
 // analysis, which relies only on approximate knowledge of the call-graph.
 var Analyzer = &analysis.Analyzer{
 	Name:             "nogofunc",
-	Doc:              "gathers a list of function signatures whose invocations definitely do not start a goroutine",
+	Doc:              "gathers a list of function signatures whose invocations may pass a pointer to a function that starts a goroutine",
 	Run:              run,
 	RunDespiteErrors: true,
 	Requires:         []*analysis.Analyzer{inspect.Analyzer, packid.Analyzer, callgraph.Analyzer},
@@ -62,6 +63,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		case *ast.GoStmt: // goroutine here could be nested inside a function literal; we count it anyway.
 			outerFunc := outermostFuncDecl(stack)
 			if outerFunc != nil && sigByPos[outerFunc.Pos()] != nil {
+				stats.AddCount(stats.StatPtrFuncStartsGoroutine, 1)
 				sigByPos[outerFunc.Pos()].StartsGoroutine = true
 			}
 		}

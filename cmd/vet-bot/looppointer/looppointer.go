@@ -12,6 +12,7 @@ import (
 	"github.com/github-vet/bots/cmd/vet-bot/nogofunc"
 	"github.com/github-vet/bots/cmd/vet-bot/packid"
 	"github.com/github-vet/bots/cmd/vet-bot/pointerescapes"
+	"github.com/github-vet/bots/cmd/vet-bot/stats"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -39,11 +40,34 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	}
 
 	inspect.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
+		if !push {
+			return true
+		}
 		reason := search.check(n, stack, pass)
+		countReasonStats(reason)
 		return reason == ReasonNone // TODO: don't stop on first hit; this requires a way to aggregate multiple results into one issue description.
 	})
 
 	return nil, nil
+}
+
+func countReasonStats(reason Reason) {
+	if reason == ReasonNone {
+		return
+	}
+	stats.AddCount(stats.StatLooppointerHits, 1)
+	switch reason {
+	case ReasonCallMayWritePtr:
+		stats.AddCount(stats.StatLooppointerReportsWritePtr, 1)
+	case ReasonCallMaybeAsync:
+		stats.AddCount(stats.StatLooppointerReportsAsync, 1)
+	case ReasonCallPassesToThirdParty:
+		stats.AddCount(stats.StatLooppointerReportsThirdParty, 1)
+	case ReasonPointerReassigned:
+		stats.AddCount(stats.StatLooppointerReportsPointerReassigned, 1)
+	case ReasonPointerStoredInCompositeLit:
+		stats.AddCount(stats.StatLooppointerReportsCompositeLit, 1)
+	}
 }
 
 // Searcher stores the set of range loops found in the source code, keyed by its
@@ -93,6 +117,7 @@ func (r Reason) Message(name string, pos token.Position) string {
 func (s *Searcher) check(n ast.Node, stack []ast.Node, pass *analysis.Pass) Reason {
 	switch typed := n.(type) {
 	case *ast.RangeStmt:
+		stats.AddCount(stats.StatRangeLoops, 1)
 		s.parseRangeStmt(typed)
 	case *ast.UnaryExpr:
 		return s.checkUnaryExpr(typed, stack, pass)
@@ -156,10 +181,12 @@ func innermostCompositeLit(stack []ast.Node) *ast.CompositeLit {
 	return nil
 }
 
-func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *analysis.Pass) Reason {
-	if n.Op != token.AND {
+func (s *Searcher) checkUnaryExpr(unaryExpr *ast.UnaryExpr, stack []ast.Node, pass *analysis.Pass) Reason {
+	if unaryExpr.Op != token.AND {
 		return ReasonNone
 	}
+
+	stats.AddCount(stats.StatUnaryReferenceExpr, 1)
 
 	innermostLoop := s.innermostLoop(stack)
 	if innermostLoop == nil { // if this unary expression is not inside a loop, we don't even care.
@@ -167,7 +194,7 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 	}
 
 	// Get identity of the referred item
-	id := getIdentity(n.X)
+	id := getIdentity(unaryExpr.X)
 	if id == nil || id.Obj == nil {
 		return ReasonNone
 	}
@@ -179,35 +206,59 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 	}
 	rangeLoop := s.Stats[id.Obj.Pos()]
 
-	// TODO: encapsulate the following cases into separate functions to make the logic clearer.
-
-	// TODO: If the identity is used in a CompositeLit directly, we must report that.
-	compositeLit := innermostCompositeLit(stack)
-	if compositeLit != nil {
-		reportBasic(pass, rangeLoop, ReasonPointerStoredInCompositeLit, id)
+	// we have found a referene to a range-loop variable; now vet it thoroughly.
+	if handleCompositeLit(pass, rangeLoop, stack, id) {
 		return ReasonPointerStoredInCompositeLit
 	}
 
-	// If the identity is not used in an assignment, call expression, or composite literal it
-	// will not be reported.
+	if reason, ok := handleAssignStmt(pass, unaryExpr, innermostLoop, rangeLoop, stack, id); ok {
+		return reason
+	}
+
+	return handleCallExpr(pass, unaryExpr, rangeLoop, stack, id)
+}
+
+// handleCompositeLit handles the case where a reference to a range-loop variable is used inside a composite literal
+// within the body of the range loop. It returns true if an issue was reported.
+func handleCompositeLit(pass *analysis.Pass, rangeLoop *ast.RangeStmt, stack []ast.Node, id *ast.Ident) bool {
+	compositeLit := innermostCompositeLit(stack)
+	if compositeLit != nil {
+		reportBasic(pass, rangeLoop, ReasonPointerStoredInCompositeLit, id)
+		return true
+	}
+	return false
+}
+
+// handleAssignStmt handles the case where a reference to a range-loop variable appears on the RHS of an assignment
+// within the body of the range-loop. It returns any reason the assignment may be dangerous; ok is true only if the
+// unaryExpr passed was found within an assignment statement.
+func handleAssignStmt(pass *analysis.Pass, unaryExpr *ast.UnaryExpr, innermostLoop *ast.RangeStmt, rangeLoop *ast.RangeStmt, stack []ast.Node, id *ast.Ident) (reason Reason, ok bool) {
 	assignStmt, child := innermostAssignStmt(stack)
 
+	reason, ok = ReasonNone, false
 	// If the identity is used in an AssignStmt directly, we must report that.
 	if assignStmt != nil {
+		ok = true
 		// if the assignment is immediately followed by return or breaks out of the range loop, no harm can
 		// be done by the assignment as the range-loop variable will never be updated again.
 		innermostRangesOverID := innermostLoop == rangeLoop // true iff innermost loop ranges over the target unary expression
 		if followedBySafeBreak(stack, innermostRangesOverID) {
-			return ReasonNone
+			return
 		}
 		for _, expr := range assignStmt.Rhs {
-			if expr.Pos() == child.Pos() && child.Pos() == n.Pos() {
+			if expr.Pos() == child.Pos() && child.Pos() == unaryExpr.Pos() {
 				reportBasic(pass, rangeLoop, ReasonPointerReassigned, id)
-				return ReasonPointerReassigned
+				reason = ReasonPointerReassigned
+				return
 			}
 		}
-		return ReasonNone
+		return
 	}
+	return
+}
+
+// handleCallExpr handles the case where a reference to a range-loop variable is used within a function call.
+func handleCallExpr(pass *analysis.Pass, unaryExpr *ast.UnaryExpr, rangeLoop *ast.RangeStmt, stack []ast.Node, id *ast.Ident) Reason {
 
 	callExpr := innermostCallExpr(stack)
 	if callExpr == nil {
@@ -238,7 +289,7 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 	}
 	callIdx := -1
 	for idx, expr := range callExpr.Args {
-		if expr.Pos() == n.Pos() {
+		if expr.Pos() == unaryExpr.Pos() {
 			callIdx = idx
 			break
 		}
@@ -251,13 +302,12 @@ func (s *Searcher) checkUnaryExpr(n *ast.UnaryExpr, stack []ast.Node, pass *anal
 			return ReasonNone // we know passing a pointer in this position is safe.
 		}
 	}
-	reportEscapedPtrSuspicion(pass, rangeLoop, callExpr, id)
-	return ReasonCallMayWritePtr
+	return reportEscapedPtrSuspicion(pass, rangeLoop, callExpr, id)
 }
 
 // reportEscapedPtrSuspicion validates the suspicion and also reports when a function may allow its pointer argument
 // to escape in some manner.
-func reportEscapedPtrSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, call *ast.CallExpr, id *ast.Ident) {
+func reportEscapedPtrSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, call *ast.CallExpr, id *ast.Ident) Reason {
 	dangerGraph := &pass.ResultOf[pointerescapes.Analyzer].(*pointerescapes.Result).DangerGraph
 	writesPtr := pass.ResultOf[pointerescapes.Analyzer].(*pointerescapes.Result).WritesPtr
 	thirdPartyPtrPassed := pass.ResultOf[pointerescapes.Analyzer].(*pointerescapes.Result).ThirdPartyPtrPassed
@@ -299,6 +349,7 @@ func reportEscapedPtrSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, ca
 			{Message: report},
 		},
 	})
+	return reason
 }
 
 // reportAsyncSuspicion validates the suspicion and also reports the finding that a function may lead to starting
