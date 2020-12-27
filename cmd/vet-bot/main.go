@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/csv"
 	"log"
 	"os"
 	"os/signal"
@@ -36,12 +37,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("error during config: %v", err)
 	}
-
 	log.Printf("configured options: %+v", opts)
 
 	vetBot := NewVetBot(opts.GithubToken, opts)
+	defer vetBot.Close()
+
 	issueReporter, err := NewIssueReporter(&vetBot, opts.IssuesFile, opts.TargetOwner, opts.TargetRepo)
 	defer issueReporter.Close()
+
 	if err != nil {
 		log.Fatalf("can't start issue reporter: %v", err)
 	}
@@ -103,10 +106,12 @@ func sampleRepo(vetBot *VetBot, issueReporter *IssueReporter) {
 
 // VetBot wraps the GitHub client and context used for all GitHub API requests.
 type VetBot struct {
-	client     *ratelimit.Client
-	reportFunc func(bot *VetBot, result VetResult)
-	wg         sync.WaitGroup
-	opts       opts
+	client      *ratelimit.Client
+	reportFunc  func(bot *VetBot, result VetResult)
+	wg          sync.WaitGroup
+	opts        opts
+	statsFile   *MutexWriter
+	statsWriter *csv.Writer
 }
 
 // NewVetBot creates a new bot using the provided GitHub token for access.
@@ -121,8 +126,21 @@ func NewVetBot(token string, opts opts) VetBot {
 	if err != nil {
 		panic(err)
 	}
-	return VetBot{
-		client: &limited,
-		opts:   opts,
+
+	statsFile, err := os.OpenFile(opts.StatsFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		panic(err)
 	}
+	mw := NewMutexWriter(statsFile)
+	return VetBot{
+		client:      &limited,
+		opts:        opts,
+		statsFile:   &mw,
+		statsWriter: csv.NewWriter(&mw),
+	}
+}
+
+// Close closes any open files.
+func (vb *VetBot) Close() {
+	vb.statsFile.Close()
 }

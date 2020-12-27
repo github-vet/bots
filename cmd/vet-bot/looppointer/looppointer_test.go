@@ -23,6 +23,7 @@ func Test(t *testing.T) {
 }
 
 func TestStats(t *testing.T) {
+	stats.Clear()
 	testdata := analysistest.TestData()
 	acceptlist.GlobalAcceptList = &acceptlist.AcceptList{
 		Accept: map[string]map[string]struct{}{

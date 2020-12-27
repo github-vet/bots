@@ -12,7 +12,7 @@ type statsStorage struct {
 	filenames  map[string]struct{}
 }
 
-// Clear resets all storage values to zero.
+// Clear resets all stores statistics to zero.
 func Clear() {
 	statsStore.filenames = make(map[string]struct{})
 	statsStore.countStats = make(map[CountStat]int)

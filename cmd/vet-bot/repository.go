@@ -118,6 +118,7 @@ func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) error {
 	}
 	VetRepo(contents, files, fset, ReportFinding(ir, fset, rootCommitID, repo))
 	countFileStats(files)
+	stats.FlushStats(bot.statsWriter, repo.Owner, repo.Repo)
 	return nil
 }
 
