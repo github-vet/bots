@@ -44,7 +44,6 @@ func run(pass *analysis.Pass) (interface{}, error) {
 			return true
 		}
 		reason := search.check(n, stack, pass)
-		countReasonStats(reason)
 		return reason == ReasonNone // TODO: don't stop on first hit; this requires a way to aggregate multiple results into one issue description.
 	})
 
@@ -331,6 +330,7 @@ func reportEscapedPtrSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, ca
 	var thirdPartyReport string
 	if err == callgraph.ErrSignatureMissing {
 		thirdPartyReport = fmt.Sprintf("root signature %v was not found in the callgraph; reference was passed directly to third-party code", sig)
+		reason = ReasonCallPassesToThirdParty
 	}
 
 	report := strings.Join([]string{
@@ -339,6 +339,7 @@ func reportEscapedPtrSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, ca
 		thirdPartyReport,
 	}, "\n")
 
+	countReasonStats(reason)
 	pass.Report(analysis.Diagnostic{
 		Pos:     rangeLoop.Pos(),
 		End:     rangeLoop.End(),
@@ -373,6 +374,7 @@ func reportAsyncSuspicion(pass *analysis.Pass, rangeLoop *ast.RangeStmt, call *a
 		// TODO?: report possible third-party code?
 	}
 
+	countReasonStats(ReasonCallMaybeAsync)
 	pass.Report(analysis.Diagnostic{
 		Pos:     rangeLoop.Pos(),
 		End:     rangeLoop.End(),
@@ -426,6 +428,7 @@ func reportPathGraph(pathGraph map[string]map[string]struct{}, badFuncPhrase str
 
 // TODO: remove this function and make it more specific....
 func reportBasic(pass *analysis.Pass, rangeLoop *ast.RangeStmt, reason Reason, id *ast.Ident) {
+	countReasonStats(reason)
 	pass.Report(analysis.Diagnostic{
 		Pos:     rangeLoop.Pos(),
 		End:     rangeLoop.End(),
