@@ -13,5 +13,6 @@ func FlushStats(writer *csv.Writer, owner, repo string) {
 		fields[idx+2] = strconv.Itoa(GetCount(stat))
 	}
 	writer.Write(fields)
+	writer.Flush()
 	Clear()
 }
