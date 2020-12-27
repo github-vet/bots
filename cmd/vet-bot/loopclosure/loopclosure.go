@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"go/ast"
 
+	"github.com/github-vet/bots/cmd/vet-bot/stats"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -87,6 +88,7 @@ func inspectBody(n ast.Node, outerVars []loopVar, pass *analysis.Pass) {
 			}
 			for _, v := range loopVars {
 				if v.ident.Obj == id.Obj {
+					stats.AddCount(stats.StatLoopclosureHits, 1)
 					pass.Report(analysis.Diagnostic{
 						Pos:     v.body.Pos(),
 						End:     v.body.End(),

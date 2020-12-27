@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"fmt"
 	"go/ast"
@@ -19,6 +20,7 @@ import (
 	"github.com/github-vet/bots/cmd/vet-bot/nogofunc"
 	"github.com/github-vet/bots/cmd/vet-bot/packid"
 	"github.com/github-vet/bots/cmd/vet-bot/pointerescapes"
+	"github.com/github-vet/bots/cmd/vet-bot/stats"
 	"github.com/google/go-github/v32/github"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -100,11 +102,12 @@ func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) error {
 				if err != nil {
 					log.Printf("error reading contents of %s: %v", realName, err)
 				}
-				file, err := parser.ParseFile(fset, realName, string(bytes), parser.AllErrors)
+				file, err := parser.ParseFile(fset, realName, bytes, parser.AllErrors)
 				if err != nil {
 					log.Printf("failed to parse file %s: %v", realName, err)
 					continue
 				}
+				countLines(realName, bytes)
 				files = append(files, file)
 				contents[fset.File(file.Pos()).Name()] = bytes
 			}
@@ -114,7 +117,25 @@ func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) error {
 		return err
 	}
 	VetRepo(contents, files, fset, ReportFinding(ir, fset, rootCommitID, repo))
+	countFileStats(files)
 	return nil
+}
+
+func countLines(filename string, contents []byte) {
+	lines := bytes.Count(contents, []byte{'\n'})
+	stats.AddCount(stats.StatSloc, lines)
+	if strings.HasSuffix(filename, "_test.go") {
+		stats.AddCount(stats.StatSlocTest, lines)
+	}
+	if strings.HasPrefix(filename, "vendor") {
+		stats.AddCount(stats.StatSlocVendored, lines)
+	}
+}
+
+func countFileStats(files []*ast.File) {
+	for _, file := range files {
+		stats.AddFile(file.Name.Name)
+	}
 }
 
 // IgnoreFile returns true if the file should be ignored.
@@ -130,6 +151,7 @@ func IgnoreFile(filename string) bool {
 type Reporter func(map[string][]byte) func(analysis.Diagnostic) // yay for currying!
 
 func VetRepo(contents map[string][]byte, files []*ast.File, fset *token.FileSet, onFind Reporter) {
+	stats.Clear()
 	pass := analysis.Pass{
 		Fset:     fset,
 		Files:    files,

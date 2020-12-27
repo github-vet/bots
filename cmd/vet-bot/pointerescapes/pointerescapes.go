@@ -9,6 +9,7 @@ import (
 	"github.com/github-vet/bots/cmd/vet-bot/acceptlist"
 	"github.com/github-vet/bots/cmd/vet-bot/callgraph"
 	"github.com/github-vet/bots/cmd/vet-bot/packid"
+	"github.com/github-vet/bots/cmd/vet-bot/stats"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -181,6 +182,8 @@ func collectSafePtrArgs(pass *analysis.Pass, callsBySignature map[callgraph.Sign
 		(*ast.CallExpr)(nil),
 	}
 
+	visitedDeclarations := make(map[token.Pos]struct{})
+
 	inspect.WithStack(nodeFilter, func(n ast.Node, push bool, stack []ast.Node) bool {
 		if !push {
 			return true
@@ -189,6 +192,8 @@ func collectSafePtrArgs(pass *analysis.Pass, callsBySignature map[callgraph.Sign
 		case *ast.FuncDecl:
 			// all pointer args are safe until proven otherwise.
 			safePtrArgs[n.Pos()] = parsePointerArgs(typed)
+
+		// TODO: ask if this is more than a 'little' duplication
 		case *ast.AssignStmt:
 			// a pointer argument used on the RHS of an assign statement is marked unsafe.
 			fdec := outermostFuncDeclPos(stack)
@@ -198,25 +203,32 @@ func collectSafePtrArgs(pass *analysis.Pass, callsBySignature map[callgraph.Sign
 			if _, ok := safePtrArgs[fdec.Pos()]; ok {
 				if safePtrArgs.MarkUnsafe(fdec.Pos(), typed.Rhs) {
 					// we found a pointer argument on the RHS of an assignment; mark the outer function.
+					if _, ok := visitedDeclarations[fdec.Pos()]; !ok {
+						stats.AddCount(stats.StatPtrFuncWritesPtr, 1)
+					}
 					writePtrSigs[callgraph.SignatureFromFuncDecl(fdec)] = struct{}{}
 				}
 			} else {
 				log.Printf("sanity check failed: assign statement found before outer declaration of %v", callgraph.SignatureFromFuncDecl(fdec))
 			}
+
 		case *ast.CompositeLit:
 			// a pointer argument used inside a composite literal is marked unsafe.
 			fdec := outermostFuncDeclPos(stack)
 			if fdec == nil {
 				return true
 			}
-			if _, ok := safePtrArgs[fdec.Pos()]; ok {
-				if safePtrArgs.MarkUnsafe(fdec.Pos(), typed.Elts) {
-					// we found a pointer argument stored in a composite literal; mark the outer function
-					writePtrSigs[callgraph.SignatureFromFuncDecl(fdec)] = struct{}{}
-				}
-			} else {
+			if _, ok := safePtrArgs[fdec.Pos()]; !ok {
 				log.Printf("sanity check failed: composite literal found before outer declaration of %v", callgraph.SignatureFromFuncDecl(fdec))
 			}
+			if safePtrArgs.MarkUnsafe(fdec.Pos(), typed.Elts) {
+				// we found a pointer argument stored in a composite literal; mark the outer function
+				if _, ok := visitedDeclarations[fdec.Pos()]; !ok {
+					stats.AddCount(stats.StatPtrFuncWritesPtr, 1)
+				}
+				writePtrSigs[callgraph.SignatureFromFuncDecl(fdec)] = struct{}{}
+			}
+
 		case *ast.CallExpr:
 			// a pointer argument passed to a third-party function is marked unsafe.
 			if _, ok := knownPtrSignatures[callgraph.SignatureFromCallExpr(typed)]; ok {
@@ -229,14 +241,17 @@ func collectSafePtrArgs(pass *analysis.Pass, callsBySignature map[callgraph.Sign
 			if fdec == nil {
 				return true
 			}
-			if _, ok := safePtrArgs[fdec.Pos()]; ok {
-				if safePtrArgs.MarkUnsafe(fdec.Pos(), typed.Args) {
-					// we found a pointer argument passed to this function call; mark the outer function as passing an
-					// argument to third-party code.
-					thirdPartySigs[callgraph.SignatureFromFuncDecl(fdec)] = struct{}{}
-				}
-			} else {
+			if _, ok := safePtrArgs[fdec.Pos()]; !ok {
 				log.Printf("sanity check failed: call expression found before outer declaration of %v", callgraph.SignatureFromFuncDecl(fdec))
+				return true
+			}
+			if safePtrArgs.MarkUnsafe(fdec.Pos(), typed.Args) {
+				// we found a pointer argument passed to this function call; mark the outer function as passing an
+				// argument to third-party code.
+				if _, ok := visitedDeclarations[fdec.Pos()]; !ok {
+					stats.AddCount(stats.StatPtrDeclCallsThirdPartyCode, 1)
+				}
+				thirdPartySigs[callgraph.SignatureFromFuncDecl(fdec)] = struct{}{}
 			}
 		}
 		return true

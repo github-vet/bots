@@ -6,12 +6,14 @@ import (
 	"log"
 	"reflect"
 
+	"github.com/github-vet/bots/cmd/vet-bot/stats"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
 )
 
-// Analyzer provides an approximate callgraph based on function name and arity.
+// Analyzer provides an approximate callgraph based on function name and arity. Edges in the callgraph
+// are only present if both functions are declared in the source and both take pointer arguments.
 var Analyzer = &analysis.Analyzer{
 	Name:             "callgraph",
 	Doc:              "computes an approximate callgraph based on function arity, name, and nothing else",
@@ -29,7 +31,9 @@ type Result struct {
 	// PtrCalls contains a record for each function call to a function with a pointer signature found
 	// during analysis.
 	PtrCalls []Call
-	// ApproxCallGraph contains the approximate call graph computed by the analyzer.
+	// ApproxCallGraph contains the approximate call graph computed by the analyzer. An edge is present
+	// in the callgraph between each pair of functions whose declarations are found in the source material
+	// and which accept a pointer variable in their signature.
 	ApproxCallGraph *CallGraph
 }
 
@@ -72,6 +76,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		if !push {
 			return true
 		}
+		stats.AddCount(stats.StatFuncDecl, 1)
 		decl, ok := n.(*ast.FuncDecl)
 		if !ok {
 			log.Fatalf("node filter %v was a lie", declFilter)
@@ -93,6 +98,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		if !push {
 			return true
 		}
+		stats.AddCount(stats.StatFuncCalls, 1)
 		callExpr, ok := n.(*ast.CallExpr)
 		if !ok {
 			log.Fatalf("node filter %v was a lie", callFilter)
