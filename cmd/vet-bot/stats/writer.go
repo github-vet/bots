@@ -5,6 +5,7 @@ import (
 	"strconv"
 )
 
+// FlushStats flushes the current set of collected statistics to the provided csv writer.
 func FlushStats(writer *csv.Writer, owner, repo string) {
 	fields := make([]string, len(AllStats)+2)
 	fields[0] = owner

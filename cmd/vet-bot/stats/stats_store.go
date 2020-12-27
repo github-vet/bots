@@ -148,5 +148,5 @@ var AllStats []CountStat = []CountStat{
 	StatLooppointerReportsAsync,
 	StatLooppointerReportsThirdParty,
 	StatLooppointerReportsPointerReassigned,
-	StatLooppointerReportsCompositeLit,
+	StatLooppointerReportsCompositeLit, // N.B. this is append only; rearranging the stats will result in corrupted data.
 }
