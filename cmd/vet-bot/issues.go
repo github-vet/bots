@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"strings"
 	"text/template"
@@ -143,7 +144,7 @@ func CreateIssueRequest(result VetResult, quote string) github.IssueRequest {
 
 // Description writes the description of an issue, given a VetResult.
 func Description(result VetResult, quote string) string {
-	permalink := fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s#L%d-L%d", result.Owner, result.Repo, result.RootCommitID, result.Start.Filename, result.Start.Line, result.End.Line)
+	permalink := url.PathEscape(fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s#L%d-L%d", result.Owner, result.Repo, result.RootCommitID, result.Start.Filename, result.Start.Line, result.End.Line))
 	slocCount := result.End.Line - result.Start.Line + 1
 
 	var b strings.Builder
@@ -220,8 +221,7 @@ type IssueResult struct {
 var IssueResultTemplate string = `
 Found a possible issue in [{{.Repository.Owner}}/{{.Repository.Repo}}](https://www.github.com/{{.Repository.Owner}}/{{.Repository.Repo}}) at [{{.FilePath}}]({{.Link}})
 
-Below is the message reported by the analyzer for this snippet of code. Beware that the analyzer only reports the first
-issue it finds, so please do not limit your consideration to the contents of the below message.
+Below is the message reported by the analyzer for this snippet of code. Beware that the analyzer only reports the first issue it finds, so please do not limit your consideration to the contents of the below message.
 
 > {{.Message}}
 
