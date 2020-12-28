@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net/url"
 	"os"
 	"strings"
 	"text/template"
@@ -144,7 +143,7 @@ func CreateIssueRequest(result VetResult, quote string) github.IssueRequest {
 
 // Description writes the description of an issue, given a VetResult.
 func Description(result VetResult, quote string) string {
-	permalink := url.PathEscape(fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s#L%d-L%d", result.Owner, result.Repo, result.RootCommitID, result.Start.Filename, result.Start.Line, result.End.Line))
+	permalink := fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s#L%d-L%d", result.Owner, result.Repo, result.RootCommitID, result.Start.Filename, result.Start.Line, result.End.Line)
 	slocCount := result.End.Line - result.Start.Line + 1
 
 	var b strings.Builder
