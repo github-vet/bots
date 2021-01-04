@@ -39,7 +39,6 @@ type VetResult struct {
 	FilePath     string
 	RootCommitID string
 	Quote        string
-	FileContents []byte
 	Start        token.Position
 	End          token.Position
 	Message      string
@@ -241,7 +240,6 @@ func ReportFinding(ir *IssueReporter, fset *token.FileSet, rootCommitID string, 
 				FilePath:     fset.File(d.Pos).Name(),
 				RootCommitID: rootCommitID,
 				Quote:        QuoteFinding(contents[filename], start.Line, end.Line),
-				FileContents: contents[filename],
 				Start:        start,
 				End:          end,
 				Message:      d.Message,
