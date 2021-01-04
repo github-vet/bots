@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/tar"
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"fmt"
@@ -37,6 +38,7 @@ type VetResult struct {
 	Repository
 	FilePath     string
 	RootCommitID string
+	Quote        string
 	FileContents []byte
 	Start        token.Position
 	End          token.Position
@@ -230,17 +232,35 @@ func ReportFinding(ir *IssueReporter, fset *token.FileSet, rootCommitID string, 
 			if len(d.Related) >= 2 {
 				extraInfo = d.Related[1].Message
 			}
+
+			start := fset.Position(d.Pos)
+			end := fset.Position(d.End)
 			// split off into a separate thread so any API call to create the issue doesn't block the remaining analysis.
 			ir.ReportVetResult(VetResult{
 				Repository:   repo,
 				FilePath:     fset.File(d.Pos).Name(),
 				RootCommitID: rootCommitID,
+				Quote:        QuoteFinding(contents[filename], start.Line, end.Line),
 				FileContents: contents[filename],
-				Start:        fset.Position(d.Pos),
-				End:          fset.Position(d.End),
+				Start:        start,
+				End:          end,
 				Message:      d.Message,
 				ExtraInfo:    extraInfo,
 			})
 		}
 	}
+}
+
+// QuoteFinding retrieves the snippet of code that caused the VetResult.
+func QuoteFinding(contents []byte, lineStart, lineEnd int) string {
+	sc := bufio.NewScanner(bytes.NewReader(contents))
+	line := 0
+	var sb strings.Builder
+	for sc.Scan() && line < lineEnd {
+		line++
+		if lineStart <= line && line <= lineEnd {
+			sb.WriteString(sc.Text() + "\n")
+		}
+	}
+	return sb.String()
 }

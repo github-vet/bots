@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/csv"
@@ -90,8 +88,7 @@ func readMd5s(filename string) (map[Md5Checksum]struct{}, error) {
 
 // ReportVetResult asynchronously creates a new GitHub issue to report the findings of the VetResult.
 func (ir *IssueReporter) ReportVetResult(result VetResult) {
-	quote := QuoteFinding(result)
-	md5Sum := md5.Sum([]byte(quote))
+	md5Sum := md5.Sum([]byte(result.Quote))
 	if _, ok := ir.md5s[md5Sum]; ok {
 		log.Printf("found duplicated code in %s", result.FilePath)
 		return
@@ -100,7 +97,7 @@ func (ir *IssueReporter) ReportVetResult(result VetResult) {
 
 	ir.bot.wg.Add(1)
 	go func(result VetResult) {
-		issueRequest := CreateIssueRequest(result, quote)
+		issueRequest := CreateIssueRequest(result, result.Quote)
 		iss, _, err := ir.bot.client.CreateIssue(ir.owner, ir.repo, &issueRequest)
 		if err != nil {
 			log.Printf("error opening new issue: %v", err)
@@ -158,21 +155,6 @@ func Description(result VetResult, quote string) string {
 		log.Printf("could not create description: %v", err)
 	}
 	return b.String()
-}
-
-// QuoteFinding retrieves the snippet of code that caused the VetResult.
-func QuoteFinding(result VetResult) string {
-	lineStart, lineEnd := result.Start.Line, result.End.Line
-	sc := bufio.NewScanner(bytes.NewReader(result.FileContents))
-	line := 0
-	var sb strings.Builder
-	for sc.Scan() && line < lineEnd {
-		line++
-		if lineStart <= line && line <= lineEnd {
-			sb.WriteString(sc.Text() + "\n")
-		}
-	}
-	return sb.String()
 }
 
 // Labels returns the list of labels to be applied to a VetResult.

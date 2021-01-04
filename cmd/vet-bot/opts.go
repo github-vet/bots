@@ -14,6 +14,7 @@ type opts struct {
 	ReposFile      string
 	VisitedFile    string
 	StatsFile      string
+	UnreportedFile string
 	TargetOwner    string
 	TargetRepo     string
 	SingleOwner    string
@@ -35,33 +36,33 @@ type OptSchema struct {
 	// Required is true if the value must be set during config.
 	Required bool
 	// OptSetter is a function run to set the value of the option in the provided opts struct
-	OptSetter func(o *opts, value string) error
+	OptSetter func(o *opts, value string)
 	// Value is a temporary storage location for values read from the flag package because it is crap.
 	Value string
 }
 
 var optSchemas []OptSchema = []OptSchema{
 	{"GITHUB_TOKEN", "token", "GitHub access token", "", true,
-		func(o *opts, value string) error { o.GithubToken = value; return nil }, ""},
+		func(o *opts, value string) { o.GithubToken = value }, ""},
 	{"STATS_FILE", "stats", "path to stats CSV file", "stats.csv", false,
-		func(o *opts, value string) error { o.StatsFile = value; return nil }, ""},
+		func(o *opts, value string) { o.StatsFile = value }, ""},
 	{"TRACKING_FILE", "issues", "path to issues CSV file", "issues.csv", false,
-		func(o *opts, value string) error { o.IssuesFile = value; return nil }, ""},
+		func(o *opts, value string) { o.IssuesFile = value }, ""},
 	{"REPOS_FILE", "repos", "path to repos CSV file", "repos.csv", false,
-		func(o *opts, value string) error { o.ReposFile = value; return nil }, ""},
+		func(o *opts, value string) { o.ReposFile = value }, ""},
 	{"VISITED_FILE", "visited", "path to visited repository CSV file", "visited.csv", false,
-		func(o *opts, value string) error { o.VisitedFile = value; return nil }, ""},
+		func(o *opts, value string) { o.VisitedFile = value }, ""},
+	{"UNREPORTED_FILE", "unreported", "path to unreported issue CSV file", "unreported.csv", false,
+		func(o *opts, value string) { o.UnreportedFile = value }, ""},
 	{"ACCEPT_LIST_FILE", "accept", "path to accept list YAML file", "", false,
-		func(o *opts, value string) error { o.AcceptListPath = value; return nil }, ""},
+		func(o *opts, value string) { o.AcceptListPath = value }, ""},
 	{"REPO_TO_READ", "read-single", "owner/repository of single repository to read", "", false,
-		func(o *opts, value string) error {
+		func(o *opts, value string) {
 			o.SingleOwner, o.SingleRepo = parseRepoString(value, "single")
-			return nil
 		}, ""},
 	{"GITHUB_REPO", "repo", "owner/repository of GitHub repo where issues will be filed", "kalexmills/rangeloop-test-repo", false,
-		func(o *opts, value string) error {
+		func(o *opts, value string) {
 			o.TargetOwner, o.TargetRepo = parseRepoString(value, "repo")
-			return nil
 		}, ""},
 }
 
