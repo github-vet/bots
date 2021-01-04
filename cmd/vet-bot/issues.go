@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -20,17 +21,19 @@ type Md5Checksum [md5.Size]byte
 
 // IssueReporter reports issues and maintains a local csv file to document any issues opened.
 type IssueReporter struct {
-	bot       *VetBot
-	issueFile *MutexWriter
-	csvWriter *csv.Writer
-	md5s      map[Md5Checksum]struct{} // hashes of the code reported to protect against vendored / duplicated code
-	owner     string
-	repo      string
+	bot                 *VetBot
+	issueFile           *MutexWriter
+	csvWriter           *csv.Writer
+	unreportedFile      *MutexWriter
+	unreportedCsvWriter *csv.Writer
+	md5s                map[Md5Checksum]struct{} // hashes of the code reported to protect against vendored / duplicated code
+	owner               string
+	repo                string
 }
 
 // NewIssueReporter constructs a new issue reporter with the provided bot. The issue file will be
 // created if it doesn't already exist. It stores a list of issues which have already been opened.
-func NewIssueReporter(bot *VetBot, issueFile string, owner, repo string) (*IssueReporter, error) {
+func NewIssueReporter(bot *VetBot, issueFile, unreportedFile string, owner, repo string) (*IssueReporter, error) {
 	md5s, err := readMd5s(issueFile)
 	if err != nil {
 		return nil, err
@@ -41,13 +44,19 @@ func NewIssueReporter(bot *VetBot, issueFile string, owner, repo string) (*Issue
 		return nil, err
 	}
 	mw := NewMutexWriter(issueWriter)
+	unreportedWriter, err := os.OpenFile(unreportedFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		return nil, err
+	}
+	unreportedMW := NewMutexWriter(unreportedWriter)
 	return &IssueReporter{
-		bot:       bot,
-		issueFile: &mw,
-		csvWriter: csv.NewWriter(&mw),
-		md5s:      md5s,
-		owner:     owner,
-		repo:      repo,
+		bot:            bot,
+		issueFile:      &mw,
+		csvWriter:      csv.NewWriter(&mw),
+		unreportedFile: &unreportedMW,
+		md5s:           md5s,
+		owner:          owner,
+		repo:           repo,
 	}, nil
 }
 
@@ -87,6 +96,7 @@ func readMd5s(filename string) (map[Md5Checksum]struct{}, error) {
 }
 
 // ReportVetResult asynchronously creates a new GitHub issue to report the findings of the VetResult.
+// Any duplicate findings are suppressed.
 func (ir *IssueReporter) ReportVetResult(result VetResult) {
 	md5Sum := md5.Sum([]byte(result.Quote))
 	if _, ok := ir.md5s[md5Sum]; ok {
@@ -94,19 +104,55 @@ func (ir *IssueReporter) ReportVetResult(result VetResult) {
 		return
 	}
 	ir.md5s[md5Sum] = struct{}{}
-
 	ir.bot.wg.Add(1)
-	go func(result VetResult) {
-		issueRequest := CreateIssueRequest(result, result.Quote)
-		iss, _, err := ir.bot.client.CreateIssue(ir.owner, ir.repo, &issueRequest)
-		if err != nil {
-			log.Printf("error opening new issue: %v", err)
-			return
+	go func(result VetResult, md5Sum Md5Checksum) {
+		if shouldReportToGithub(result.FilePath) {
+			ir.reportToGithub(result, md5Sum)
+		} else {
+			ir.saveToFile(result, md5Sum)
 		}
-		ir.writeIssueToFile(result, iss, md5Sum)
-		log.Printf("opened new issue at %s", iss.GetHTMLURL())
 		ir.bot.wg.Done()
-	}(result)
+	}(result, md5Sum)
+}
+
+func shouldReportToGithub(filepath string) bool {
+	if strings.HasSuffix(filepath, "_test.go") || strings.HasPrefix(filepath, "vendor/") {
+		return false
+	}
+	return true
+}
+
+func (ir *IssueReporter) saveToFile(result VetResult, md5Sum Md5Checksum) {
+	marshalled, err := json.Marshal(result)
+	if err != nil {
+		log.Printf("error marshalling to JSON: %v", err)
+		return
+	}
+	_, err = fmt.Fprintf(ir.unreportedFile, "%s\n", base64.StdEncoding.EncodeToString(marshalled))
+	if err != nil {
+		log.Printf("error writing to file: %v", err)
+		return
+	}
+	md5Str := base64.StdEncoding.EncodeToString(md5Sum[:])
+	err = ir.csvWriter.Write([]string{"unreported", "unreported", "0", md5Str})
+	if err != nil {
+		log.Printf("error recording issue checksum: %v", err)
+	}
+	log.Printf("wrote issue to unreported file")
+}
+
+func (ir *IssueReporter) reportToGithub(result VetResult, md5Sum Md5Checksum) {
+	issueRequest := CreateIssueRequest(result, result.Quote)
+	iss, _, err := ir.bot.client.CreateIssue(ir.owner, ir.repo, &issueRequest)
+	if err != nil {
+		log.Printf("error opening new issue: %v", err)
+		return
+	}
+	err = ir.writeIssueToFile(result, iss, md5Sum)
+	if err != nil {
+		log.Printf("error recording issue checksum: %v", err)
+	}
+	log.Printf("opened new issue at %s", iss.GetHTMLURL())
 }
 
 func (ir *IssueReporter) writeIssueToFile(result VetResult, iss *github.Issue, md5Sum [16]byte) error {

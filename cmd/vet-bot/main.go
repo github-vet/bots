@@ -42,7 +42,7 @@ func main() {
 	vetBot := NewVetBot(opts.GithubToken, opts)
 	defer vetBot.Close()
 
-	issueReporter, err := NewIssueReporter(&vetBot, opts.IssuesFile, opts.TargetOwner, opts.TargetRepo)
+	issueReporter, err := NewIssueReporter(&vetBot, opts.IssuesFile, opts.UnreportedFile, opts.TargetOwner, opts.TargetRepo)
 	defer issueReporter.Close()
 
 	if err != nil {
