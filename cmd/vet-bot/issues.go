@@ -82,13 +82,14 @@ func (ir *IssueReporter) ReportVetResult(result VetResult) {
 	}
 
 	ir.persistResult(result, iss, md5Sum)
-	log.Printf("opened new issue at %s", iss.GetHTMLURL())
 	/*ir.bot.wg.Done()
 	}(result)*/
 }
 
 func shouldReportToGithub(filepath string) bool {
-	if strings.HasSuffix(filepath, "_test.go") || strings.HasPrefix(filepath, "vendor/") {
+	if strings.HasSuffix(filepath, "_test.go") ||
+		strings.Contains(filepath, "vendor/") ||
+		strings.Contains(filepath, "test/") {
 		return false
 	}
 	return true
@@ -129,6 +130,7 @@ func (ir *IssueReporter) persistResult(result VetResult, issue *github.Issue, md
 	if err != nil {
 		return fmt.Errorf("error persisting issue: %w", err)
 	}
+	log.Printf("opened new issue at %s", issue.GetHTMLURL())
 	return nil
 }
 
