@@ -5,7 +5,6 @@ import (
 	"crypto/md5"
 	"database/sql"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"testing"
@@ -31,7 +30,7 @@ func TestMain(m *testing.M) {
 	DB, err = sql.Open("sqlite3", dbPath)
 	defer DB.Close()
 
-	loadSchema(DB, "schema/v1.sql")
+	db.BootstrapDB("bootstrap", DB)
 	if err != nil {
 		log.Fatalf("could not open database %s: %v", dbPath, err)
 	}
@@ -39,19 +38,6 @@ func TestMain(m *testing.M) {
 	m.Run()
 
 	os.Remove(dbPath)
-}
-
-// loadSchema opens the sql script at path and executes it on the provided database.
-func loadSchema(db *sql.DB, path string) {
-	schemaBytes, err := ioutil.ReadFile(path)
-	if err != nil {
-		log.Fatalf("could not read schema from %s: %v", path, err)
-	}
-
-	_, err = db.Exec(string(schemaBytes))
-	if err != nil {
-		log.Fatalf("could not execute schema from %s: %v", path, err)
-	}
 }
 
 func TestIssueDAO(t *testing.T) {
