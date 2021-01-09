@@ -17,6 +17,7 @@ type opts struct {
 	SingleRepo        string
 	AcceptListPath    string
 	DbBootstrapFolder string
+	ReposFile         string
 	DatabaseFile      string
 }
 
@@ -46,6 +47,8 @@ var optSchemas []OptSchema = []OptSchema{
 		func(o *opts, value string) error { o.DbBootstrapFolder = value; return nil }, ""},
 	{"STATS_FILE", "stats", "path to stats CSV file", "stats.csv", false,
 		func(o *opts, value string) error { o.StatsFile = value; return nil }, ""},
+	{"REPOS_FILE", "repos", "path to seed repos CSV file", "repos.csv", false,
+		func(o *opts, value string) error { o.ReposFile = value; return nil }, ""},
 	{"ACCEPT_LIST_FILE", "accept", "path to accept list YAML file", "", false,
 		func(o *opts, value string) error { o.AcceptListPath = value; return nil }, ""},
 	{"DATABASE_FILE", "db", "path to database sqlite3 file", "", false,

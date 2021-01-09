@@ -134,10 +134,19 @@ func NewVetBot(token string, opts opts) VetBot {
 		log.Fatalf("cannot open database from %s: %v", opts.DatabaseFile, err)
 	}
 
+	// bootstrap the schema
 	if opts.DbBootstrapFolder != "" {
 		err := db.BootstrapDB(opts.DbBootstrapFolder, DB)
 		if err != nil {
 			log.Fatalf("could not bootstrap database: %v", err)
+		}
+	}
+
+	// seed the initial set of repositories
+	if opts.ReposFile != "" {
+		err := db.SeedRepositories(opts.ReposFile, DB)
+		if err != nil {
+			log.Fatalf("could not seed database with initial repositories: %v", err)
 		}
 	}
 

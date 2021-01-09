@@ -39,8 +39,8 @@ spec:
         image: gcr.io/niftysoft-1024/vetbot:latest
         env:
           # TODO: Don't use the list of repos baked into the container
-          # - name: REPOS_FILE
-          #   value: /data/repos.csv
+          - name: REPOS_FILE
+            value: /bootstrap/repo_seed.csv
           - name: DATABASE_FILE
             value: /data/prod.sqlite3
           - name: STATS_FILE

@@ -32,6 +32,7 @@ type RepositoryDaoImpl struct {
 	FindByID    func(ctx context.Context, q proteus.ContextQuerier, owner, repo string) (Repository, error) `proq:"q:findByID" prop:"owner,repo"`
 	ListByState func(ctx context.Context, q proteus.ContextQuerier, state RepoState) ([]Repository, error)  `proq:"q:listByState" prop:"state"`
 	Upsert      func(ctx context.Context, e proteus.ContextExecutor, r Repository) (int64, error)           `proq:"q:upsert" prop:"r"`
+	CountAll    func(ctx context.Context, q proteus.ContextQuerier) (int64, error)                          `proq:"q:count"`
 }
 
 var RepositoryDAO = RepositoryDaoImpl{}
@@ -44,6 +45,7 @@ func init() {
 									VALUES (:r.GithubOwner:, :r.GithubRepo:, :r.State:)
 								ON CONFLICT (github_owner, github_repo) DO UPDATE
 								SET state = :r.State:`,
+		"count": `SELECT count(*) FROM repositories`,
 	}
 	err := proteus.ShouldBuild(context.Background(), &RepositoryDAO, proteus.Sqlite, m)
 	if err != nil {
