@@ -46,7 +46,7 @@ spec:
           - name: STATS_FILE
             value: /data/stats.csv
           - name: GITHUB_REPO
-            value: github-vet/rangeloop-pointer-findings
+            value: github-vet/preliminary-findings-jan-2021
           - name: ACCEPT_LIST_FILE
             value: /config/accept.yml
         envFrom:
