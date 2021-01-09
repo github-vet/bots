@@ -5,7 +5,6 @@ import (
 	"crypto/md5"
 	"fmt"
 	"log"
-	"net/url"
 	"strings"
 	"text/template"
 
@@ -139,7 +138,7 @@ func CreateIssueRequest(result VetResult) github.IssueRequest {
 
 	slocCount := result.End.Line - result.Start.Line + 1
 	title := fmt.Sprintf("%s/%s: %s; %d LoC", result.Owner, result.Repo, result.FilePath, slocCount)
-	body := Description(result, result.Quote)
+	body := Description(result)
 	labels := Labels(result)
 	state := State(result)
 
@@ -153,15 +152,14 @@ func CreateIssueRequest(result VetResult) github.IssueRequest {
 }
 
 // Description writes the description of an issue, given a VetResult.
-func Description(result VetResult, quote string) string {
-	permalink := url.PathEscape(fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s#L%d-L%d", result.Owner, result.Repo, result.RootCommitID, result.Start.Filename, result.Start.Line, result.End.Line))
+func Description(result VetResult) string {
+	permalink := result.Permalink()
 	slocCount := result.End.Line - result.Start.Line + 1
 
 	var b strings.Builder
 	err := parsed.Execute(&b, IssueResult{
 		VetResult: result,
 		Link:      permalink,
-		Quote:     quote,
 		SlocCount: slocCount,
 	})
 	if err != nil {
@@ -206,7 +204,6 @@ func State(result VetResult) string {
 type IssueResult struct {
 	VetResult
 	Link      string
-	Quote     string
 	SlocCount int
 }
 
