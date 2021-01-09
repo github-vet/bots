@@ -151,6 +151,8 @@ func IgnoreFile(filename string) bool {
 // also has access to the contents and name of the file being observed.
 type Reporter func(map[string][]byte) func(analysis.Diagnostic) // yay for currying!
 
+// VetRepo runs all static analyzers on the parsed set of files provided. When an issue is found,
+// the Reporter provided in onFind is triggered.
 func VetRepo(contents map[string][]byte, files []*ast.File, fset *token.FileSet, onFind Reporter) {
 	stats.Clear()
 	pass := analysis.Pass{
@@ -217,7 +219,8 @@ func GetRootCommitID(bot *VetBot, repo Repository) (string, error) {
 	return branch.GetCommit().GetSHA(), nil
 }
 
-// ReportFinding curries several parameters into an appopriate Diagnostic report function.
+// ReportFinding curries several parameters into a function whose signature matches that expected
+// by the analysis package for a Diagnostic function.
 func ReportFinding(ir *IssueReporter, fset *token.FileSet, rootCommitID string, repo Repository) Reporter {
 	return func(contents map[string][]byte) func(analysis.Diagnostic) {
 		return func(d analysis.Diagnostic) {

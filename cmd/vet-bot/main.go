@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/csv"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -42,8 +44,7 @@ func main() {
 	vetBot := NewVetBot(opts.GithubToken, opts)
 	defer vetBot.Close()
 
-	issueReporter, err := NewIssueReporter(&vetBot, opts.IssuesFile, opts.TargetOwner, opts.TargetRepo)
-	defer issueReporter.Close()
+	issueReporter, err := NewIssueReporter(&vetBot, opts.TargetOwner, opts.TargetRepo)
 
 	if err != nil {
 		log.Fatalf("can't start issue reporter: %v", err)
@@ -58,8 +59,7 @@ func main() {
 	}
 
 	if opts.SingleRepo == "" {
-		sampler, err := NewRepositorySampler(opts.ReposFile, opts.VisitedFile)
-		defer sampler.Close()
+		sampler, err := NewRepositorySampler(vetBot.db)
 		if err != nil {
 			log.Fatalf("can't start sampler: %v", err)
 		}
@@ -107,9 +107,9 @@ func sampleRepo(vetBot *VetBot, issueReporter *IssueReporter) {
 // VetBot wraps the GitHub client and context used for all GitHub API requests.
 type VetBot struct {
 	client      *ratelimit.Client
-	reportFunc  func(bot *VetBot, result VetResult)
 	wg          sync.WaitGroup
 	opts        opts
+	db          *sql.DB
 	statsFile   *MutexWriter
 	statsWriter *csv.Writer
 }
@@ -127,20 +127,51 @@ func NewVetBot(token string, opts opts) VetBot {
 		panic(err)
 	}
 
+	DB, err := sql.Open("sqlite3", opts.DatabaseFile)
+	if err != nil {
+		log.Fatalf("cannot open database from %s: %v", opts.DatabaseFile, err)
+	}
+
 	statsFile, err := os.OpenFile(opts.StatsFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
-		panic(err)
+		log.Fatalf("cannot open stats file from %s: %v", opts.StatsFile, err)
 	}
 	mw := NewMutexWriter(statsFile)
 	return VetBot{
 		client:      &limited,
+		db:          DB,
 		opts:        opts,
 		statsFile:   &mw,
 		statsWriter: csv.NewWriter(&mw),
 	}
 }
 
-// Close closes any open files.
+// Close closes any open files and database connections.
 func (vb *VetBot) Close() {
 	vb.statsFile.Close()
+	vb.db.Close()
+}
+
+// MutexWriter wraps an io.WriteCloser with a sync.Mutex.
+type MutexWriter struct { // TODO: this might be a bit much; we already have a Mutex in RepositorySampler
+	m sync.Mutex
+	w io.WriteCloser
+}
+
+// NewMutexWriter wraps an io.WriteCloser with a sync.Mutex.
+func NewMutexWriter(w io.WriteCloser) MutexWriter {
+	return MutexWriter{w: w}
+}
+
+func (mw *MutexWriter) Write(b []byte) (int, error) {
+	mw.m.Lock()
+	defer mw.m.Unlock()
+	return mw.w.Write(b)
+}
+
+// Close closes the underlying WriteCloser.
+func (mw *MutexWriter) Close() error {
+	mw.m.Lock()
+	defer mw.m.Unlock()
+	return mw.w.Close()
 }

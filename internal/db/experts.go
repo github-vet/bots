@@ -6,6 +6,7 @@ import (
 	"github.com/jonbodner/proteus"
 )
 
+// Expert is a GitHub user marked as an expert
 type Expert struct {
 	Username        string `prof:"username"`
 	AssessmentCount int    `prof:"assessment_count"`

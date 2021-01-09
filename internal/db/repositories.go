@@ -29,15 +29,17 @@ func stringToRepoState(str string) RepoState {
 }
 
 type RepositoryDaoImpl struct {
-	FindByID func(ctx context.Context, q proteus.ContextQuerier, owner, repo string) (Repository, error) `proq:"q:findByID" prop:"owner,repo"`
-	Upsert   func(ctx context.Context, e proteus.ContextExecutor, r Repository) (int64, error)           `proq:"q:upsert" prop:"r"`
+	FindByID    func(ctx context.Context, q proteus.ContextQuerier, owner, repo string) (Repository, error) `proq:"q:findByID" prop:"owner,repo"`
+	ListByState func(ctx context.Context, q proteus.ContextQuerier, state RepoState) ([]Repository, error)  `proq:"q:listByState" prop:"state"`
+	Upsert      func(ctx context.Context, e proteus.ContextExecutor, r Repository) (int64, error)           `proq:"q:upsert" prop:"r"`
 }
 
 var RepositoryDAO = RepositoryDaoImpl{}
 
 func init() {
 	m := proteus.MapMapper{
-		"findByID": "SELECT * FROM repositories WHERE github_owner = :owner: AND github_repo = :repo:",
+		"findByID":    "SELECT * FROM repositories WHERE github_owner = :owner: AND github_repo = :repo:",
+		"listByState": "SELECT * from repositories WHERE state = :state:",
 		"upsert": `INSERT INTO repositories (github_owner, github_repo, state) 
 									VALUES (:r.GithubOwner:, :r.GithubRepo:, :r.State:)
 								ON CONFLICT (github_owner, github_repo) DO UPDATE

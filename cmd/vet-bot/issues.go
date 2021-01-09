@@ -3,87 +3,58 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/md5"
-	"encoding/base64"
-	"encoding/csv"
 	"fmt"
-	"io"
+	"go/format"
 	"log"
 	"net/url"
-	"os"
 	"strings"
 	"text/template"
 
+	"github.com/github-vet/bots/internal/db"
 	"github.com/google/go-github/v32/github"
 )
 
 // Md5Checksum represents an MD5 checksum as per the standard library.
 type Md5Checksum [md5.Size]byte
 
-// IssueReporter reports issues and maintains a local csv file to document any issues opened.
+// IssueReporter reports issues and maintains an in-memory store of reported code snippets to prevent
+// exact duplicates from being reported.
 type IssueReporter struct {
-	bot       *VetBot
-	issueFile *MutexWriter
-	csvWriter *csv.Writer
-	md5s      map[Md5Checksum]struct{} // hashes of the code reported to protect against vendored / duplicated code
-	owner     string
-	repo      string
+	bot   *VetBot
+	md5s  map[Md5Checksum]struct{} // hashes of the code reported to protect against vendored / duplicated code
+	owner string
+	repo  string
 }
 
 // NewIssueReporter constructs a new issue reporter with the provided bot. The issue file will be
 // created if it doesn't already exist. It stores a list of issues which have already been opened.
-func NewIssueReporter(bot *VetBot, issueFile string, owner, repo string) (*IssueReporter, error) {
-	md5s, err := readMd5s(issueFile)
+func NewIssueReporter(bot *VetBot, owner, repo string) (*IssueReporter, error) {
+	md5s, err := readMd5sFromDB(bot)
 	if err != nil {
 		return nil, err
 	}
 
-	issueWriter, err := os.OpenFile(issueFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		return nil, err
-	}
-	mw := NewMutexWriter(issueWriter)
 	return &IssueReporter{
-		bot:       bot,
-		issueFile: &mw,
-		csvWriter: csv.NewWriter(&mw),
-		md5s:      md5s,
-		owner:     owner,
-		repo:      repo,
+		bot:   bot,
+		md5s:  md5s,
+		owner: owner,
+		repo:  repo,
 	}, nil
 }
 
-// Close closes the underlying issue file.
-func (ir *IssueReporter) Close() error {
-	return ir.issueFile.Close()
-}
-
-func readMd5s(filename string) (map[Md5Checksum]struct{}, error) {
-	result := make(map[Md5Checksum]struct{})
-	if _, err := os.Stat(filename); err != nil {
-		return result, nil
-	}
-	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
-	defer file.Close()
+func readMd5sFromDB(bot *VetBot) (map[Md5Checksum]struct{}, error) {
+	sumSlices, err := db.FindingDAO.ListChecksums(context.Background(), bot.db)
 	if err != nil {
 		return nil, err
 	}
-	reader := csv.NewReader(file)
-	for {
-		record, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-		if len(record) != 4 {
-			log.Printf("malformed line in repository list %s", filename)
-			continue
-		}
-		var md5Sum Md5Checksum
-		base64.StdEncoding.Decode(md5Sum[:], []byte(record[3]))
-		result[md5Sum] = struct{}{}
+
+	result := make(map[Md5Checksum]struct{}, len(sumSlices))
+	var sum [16]byte
+	for _, sumSlice := range sumSlices {
+		copy(sum[:], sumSlice)
+		result[sum] = struct{}{}
 	}
 	return result, nil
 }
@@ -98,27 +69,51 @@ func (ir *IssueReporter) ReportVetResult(result VetResult) {
 	}
 	ir.md5s[md5Sum] = struct{}{}
 
-	ir.bot.wg.Add(1)
-	go func(result VetResult) {
-		issueRequest := CreateIssueRequest(result, quote)
-		iss, _, err := ir.bot.client.CreateIssue(ir.owner, ir.repo, &issueRequest)
-		if err != nil {
-			log.Printf("error opening new issue: %v", err)
-			return
-		}
-		ir.writeIssueToFile(result, iss, md5Sum)
-		log.Printf("opened new issue at %s", iss.GetHTMLURL())
-		ir.bot.wg.Done()
-	}(result)
+	// TODO: we can't fork this asynchronously until proteus can return an sql.Result
+	//       async usage here causes a race-condition in persistResult with last_insert_rowid()
+	/*ir.bot.wg.Add(1)
+	go func(result VetResult) {*/
+	issueRequest := CreateIssueRequest(result, quote)
+	iss, _, err := ir.bot.client.CreateIssue(ir.owner, ir.repo, &issueRequest)
+	if err != nil {
+		log.Printf("error opening new issue: %v", err)
+		return
+	}
+	ir.persistResult(result, iss, md5Sum, quote)
+	log.Printf("opened new issue at %s", iss.GetHTMLURL())
+	/*ir.bot.wg.Done()
+	}(result)*/
 }
 
-func (ir *IssueReporter) writeIssueToFile(result VetResult, iss *github.Issue, md5Sum [16]byte) error {
-	issueNum := fmt.Sprintf("%d", iss.GetNumber())
-	md5Str := base64.StdEncoding.EncodeToString(md5Sum[:])
-	err := ir.csvWriter.Write([]string{ir.owner, ir.repo, issueNum, md5Str})
-	ir.csvWriter.Flush()
+// persistResult writes the finding and issue to the database. It is not thread-safe (yet).
+func (ir *IssueReporter) persistResult(result VetResult, iss *github.Issue, md5Sum [16]byte, quote string) error {
+	_, err := db.FindingDAO.Create(context.Background(), ir.bot.db, db.Finding{
+		GithubOwner:  result.Owner,
+		GithubRepo:   result.Repo,
+		Filepath:     result.FilePath,
+		RootCommitID: result.RootCommitID,
+		Quote:        quote,
+		QuoteMD5Sum:  db.Md5Sum(md5Sum[:]),
+		StartLine:    result.Start.Line,
+		EndLine:      result.End.Line,
+		Message:      result.Message,
+		ExtraInfo:    result.ExtraInfo,
+	})
 	if err != nil {
-		return err
+		return fmt.Errorf("error persisting finding: %w", err)
+	}
+	findingID, err := db.LastInsertID(ir.bot.db) // TODO: not this;
+	if err != nil {
+		return fmt.Errorf("error retrieving finding ID: %w", err)
+	}
+	_, err = db.IssueDAO.Upsert(context.Background(), ir.bot.db, db.Issue{
+		FindingID:   findingID,
+		GithubOwner: ir.owner,
+		GithubRepo:  ir.repo,
+		GithubID:    iss.GetNumber(),
+	})
+	if err != nil {
+		return fmt.Errorf("error persisting issue: %w", err)
 	}
 	return nil
 }
@@ -168,11 +163,21 @@ func QuoteFinding(result VetResult) string {
 	var sb strings.Builder
 	for sc.Scan() && line < lineEnd {
 		line++
-		if lineStart <= line && line <= lineEnd {
+		if lineStart == line { // truncate whitespace from the first line (fixes formatting later)
+			sb.WriteString(strings.TrimSpace(sc.Text()) + "\n")
+		}
+		if lineStart < line && line <= lineEnd {
 			sb.WriteString(sc.Text() + "\n")
 		}
 	}
-	return sb.String()
+
+	// run go fmt on the snippet to remove leading whitespace
+	snippet := sb.String()
+	formatted, err := format.Source([]byte(snippet))
+	if err != nil {
+		return snippet
+	}
+	return string(formatted)
 }
 
 // Labels returns the list of labels to be applied to a VetResult.

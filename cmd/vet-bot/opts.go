@@ -19,6 +19,7 @@ type opts struct {
 	SingleOwner    string
 	SingleRepo     string
 	AcceptListPath string
+	DatabaseFile   string
 }
 
 // OptSchema defines a configuration option which can come either from the command-line or
@@ -53,6 +54,8 @@ var optSchemas []OptSchema = []OptSchema{
 		func(o *opts, value string) error { o.VisitedFile = value; return nil }, ""},
 	{"ACCEPT_LIST_FILE", "accept", "path to accept list YAML file", "", false,
 		func(o *opts, value string) error { o.AcceptListPath = value; return nil }, ""},
+	{"DATABASE_FILE", "db", "path to database sqlite3 file", "", false,
+		func(o *opts, value string) error { o.DatabaseFile = value; return nil }, ""},
 	{"REPO_TO_READ", "read-single", "owner/repository of single repository to read", "", false,
 		func(o *opts, value string) error {
 			o.SingleOwner, o.SingleRepo = parseRepoString(value, "single")

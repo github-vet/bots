@@ -104,6 +104,21 @@ func TestRepositoryDAO(t *testing.T) {
 	repo, err = db.RepositoryDAO.FindByID(ctx, DB, "test", "123")
 	assert.NoError(t, err)
 	assert.Equal(t, db.RepoStateVisited, repo.State)
+
+	count, err = db.RepositoryDAO.Upsert(ctx, DB, db.NewRepository("test", "456"))
+	assert.EqualValues(t, 1, count)
+	assert.NoError(t, err)
+
+	visitedRepos, err := db.RepositoryDAO.ListByState(ctx, DB, db.RepoStateVisited)
+	assert.NoError(t, err)
+	freshRepos, err := db.RepositoryDAO.ListByState(ctx, DB, db.RepoStateFresh)
+	assert.NoError(t, err)
+
+	assert.Len(t, visitedRepos, 1)
+	assert.Len(t, freshRepos, 1)
+
+	assert.Equal(t, visitedRepos[0].GithubRepo, "123")
+	assert.Equal(t, freshRepos[0].GithubRepo, "456")
 }
 
 func TestGopherDAO(t *testing.T) {
@@ -150,6 +165,29 @@ func TestFindingDAO(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, int64(1), count)
+
+	id, err := db.LastInsertID(DB)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, id)
+
+	count, err = db.FindingDAO.Create(ctx, DB, db.Finding{
+		GithubOwner:  "owner",
+		GithubRepo:   "repo",
+		Filepath:     "filepath",
+		RootCommitID: "rootCommit",
+		Quote:        "quote",
+		QuoteMD5Sum:  hash[:],
+		StartLine:    2,
+		EndLine:      7,
+		Message:      "message",
+		ExtraInfo:    "extra",
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, int64(1), count)
+
+	id, err = db.LastInsertID(DB)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, id)
 
 	f, err := db.FindingDAO.FindByID(ctx, DB, 1)
 	assert.NoError(t, err)
