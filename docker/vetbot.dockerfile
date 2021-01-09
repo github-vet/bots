@@ -6,7 +6,7 @@ RUN apk add --no-cache build-base
 WORKDIR /src/
 COPY . /src/
 WORKDIR /src/cmd/vet-bot
-RUN go build -a -o /bin/vet-bot 
+RUN CGO_ENABLED=1 GOOS=linux go build -a -o /bin/vet-bot 
 
 FROM alpine
 RUN apk --no-cache add ca-certificates
