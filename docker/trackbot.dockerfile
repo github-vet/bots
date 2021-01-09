@@ -3,7 +3,7 @@ FROM golang:1.15-alpine AS build
 WORKDIR /src/
 COPY . /src/
 WORKDIR /src/cmd/track-bot
-RUN CGO_ENABLED=0 go build -a -o /bin/track-bot 
+RUN go build -a -o /bin/track-bot 
 
 FROM alpine
 RUN apk --no-cache add ca-certificates
