@@ -9,16 +9,16 @@ import (
 )
 
 type opts struct {
-	GithubToken    string
-	IssuesFile     string
-	ReposFile      string
-	VisitedFile    string
-	StatsFile      string
-	TargetOwner    string
-	TargetRepo     string
-	SingleOwner    string
-	SingleRepo     string
-	AcceptListPath string
+	GithubToken       string
+	StatsFile         string
+	TargetOwner       string
+	TargetRepo        string
+	SingleOwner       string
+	SingleRepo        string
+	AcceptListPath    string
+	DbBootstrapFolder string
+	ReposFile         string
+	DatabaseFile      string
 }
 
 // OptSchema defines a configuration option which can come either from the command-line or
@@ -43,16 +43,16 @@ type OptSchema struct {
 var optSchemas []OptSchema = []OptSchema{
 	{"GITHUB_TOKEN", "token", "GitHub access token", "", true,
 		func(o *opts, value string) error { o.GithubToken = value; return nil }, ""},
+	{"SCHEMA_FOLDER", "schemas", "directory containing SQL schemas", "", false,
+		func(o *opts, value string) error { o.DbBootstrapFolder = value; return nil }, ""},
 	{"STATS_FILE", "stats", "path to stats CSV file", "stats.csv", false,
 		func(o *opts, value string) error { o.StatsFile = value; return nil }, ""},
-	{"TRACKING_FILE", "issues", "path to issues CSV file", "issues.csv", false,
-		func(o *opts, value string) error { o.IssuesFile = value; return nil }, ""},
-	{"REPOS_FILE", "repos", "path to repos CSV file", "repos.csv", false,
+	{"REPOS_FILE", "repos", "path to seed repos CSV file", "repos.csv", false,
 		func(o *opts, value string) error { o.ReposFile = value; return nil }, ""},
-	{"VISITED_FILE", "visited", "path to visited repository CSV file", "visited.csv", false,
-		func(o *opts, value string) error { o.VisitedFile = value; return nil }, ""},
 	{"ACCEPT_LIST_FILE", "accept", "path to accept list YAML file", "", false,
 		func(o *opts, value string) error { o.AcceptListPath = value; return nil }, ""},
+	{"DATABASE_FILE", "db", "path to database sqlite3 file", "", false,
+		func(o *opts, value string) error { o.DatabaseFile = value; return nil }, ""},
 	{"REPO_TO_READ", "read-single", "owner/repository of single repository to read", "", false,
 		func(o *opts, value string) error {
 			o.SingleOwner, o.SingleRepo = parseRepoString(value, "single")
