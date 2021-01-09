@@ -38,13 +38,11 @@ spec:
       - name: vetbot
         image: gcr.io/niftysoft-1024/vetbot:latest
         env:
-          - name: TRACKING_FILE
-            value: /data/issues.csv
           # TODO: Don't use the list of repos baked into the container
-          # - name: REPOS_FILE
-          #   value: /data/repos.csv
-          - name: VISITED_FILE
-            value: /data/visited_repos.csv
+          - name: REPOS_FILE
+            value: /bootstrap/repo_seed.csv
+          - name: DATABASE_FILE
+            value: /data/prod.sqlite3
           - name: STATS_FILE
             value: /data/stats.csv
           - name: GITHUB_REPO

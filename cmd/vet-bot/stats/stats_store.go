@@ -1,3 +1,5 @@
+// Package stats implements a global statistics store for instrumenting code to count the
+// occurrence of important events. The stats store is not thread-safe in the slightest.
 package stats
 
 import "strings"

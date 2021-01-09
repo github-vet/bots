@@ -9,7 +9,7 @@ import (
 
 func TestDescriptionTemplateCompiles(t *testing.T) {
 	assert.NotPanics(t, func() {
-		Description(VetResult{}, "")
+		Description(VetResult{})
 	})
 }
 
@@ -21,7 +21,7 @@ func TestDescriptionTemplate(t *testing.T) {
 		},
 		FilePath:     "file/path space/foo.go",
 		RootCommitID: "rootcommitid",
-		FileContents: []byte("file contents"),
+		Quote:        "quote",
 		Message:      "message",
 		Start: token.Position{
 			Filename: "file/path space/foo.go",
@@ -31,7 +31,7 @@ func TestDescriptionTemplate(t *testing.T) {
 			Line: 125,
 		},
 		ExtraInfo: "extra",
-	}, "quote")
+	})
 
 	// assert the important bits make it into the description properly
 	assert.Contains(t, description, "```go\nquote\n```")
