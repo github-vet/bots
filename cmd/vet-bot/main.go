@@ -12,9 +12,12 @@ import (
 	"sync"
 
 	"github.com/github-vet/bots/cmd/vet-bot/acceptlist"
+	"github.com/github-vet/bots/internal/db"
 	"github.com/github-vet/bots/internal/ratelimit"
 	"github.com/google/go-github/v32/github"
 	"golang.org/x/oauth2"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // main runs the vetbot.
@@ -49,7 +52,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("can't start issue reporter: %v", err)
 	}
-	log.Printf("issues will be written to %s", opts.IssuesFile)
 
 	if opts.AcceptListPath != "" {
 		err := acceptlist.LoadAcceptList(opts.AcceptListPath)
@@ -84,7 +86,7 @@ func sampleRepos(vetBot *VetBot, sampler *RepositorySampler, issueReporter *Issu
 			})
 			if err != nil {
 				log.Printf("stopping scan due to error: %v", err)
-				break
+				return
 			}
 			// the following line was found to reduce memory usage on Windows; it may not be
 			// necessary on all OS's
@@ -130,6 +132,13 @@ func NewVetBot(token string, opts opts) VetBot {
 	DB, err := sql.Open("sqlite3", opts.DatabaseFile)
 	if err != nil {
 		log.Fatalf("cannot open database from %s: %v", opts.DatabaseFile, err)
+	}
+
+	if opts.DbBootstrapFolder != "" {
+		err := db.BootstrapDB(opts.DbBootstrapFolder, DB)
+		if err != nil {
+			log.Fatalf("could not bootstrap database: %v", err)
+		}
 	}
 
 	statsFile, err := os.OpenFile(opts.StatsFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)

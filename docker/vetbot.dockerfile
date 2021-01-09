@@ -7,6 +7,7 @@ RUN CGO_ENABLED=0 go build -a -o /bin/vet-bot
 
 FROM alpine
 RUN apk --no-cache add ca-certificates
-COPY --from=build /src/repos.csv /repos.csv
+
+COPY --from=build /src/internal/db/bootstrap /bootstrap
 COPY --from=build /bin/vet-bot  /bin/vet-bot 
-ENTRYPOINT ["/bin/vet-bot", "-repos", "/repos.csv"]
+ENTRYPOINT ["/bin/vet-bot", "-schemas", "/bootstrap"]

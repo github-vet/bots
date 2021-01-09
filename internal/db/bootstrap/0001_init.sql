@@ -1,15 +1,15 @@
-CREATE TABLE gophers (
+CREATE TABLE IF NOT EXISTS gophers (
   username           TEXT PRIMARY KEY,
   disagreement_count INTEGER DEFAULT 0 NOT NULL,
   assessment_count   INTEGER DEFAULT 0 NOT NULL
 );
 
-CREATE TABLE experts (
+CREATE TABLE IF NOT EXISTS experts (
   username TEXT PRIMARY KEY,
   assessment_count INTEGER DEFAULT 0 NOT NULL
 );
 
-CREATE TABLE repositories (
+CREATE TABLE IF NOT EXISTS repositories (
   github_owner TEXT NOT NULL,
   github_repo  TEXT NOT NULL,
   state        TEXT CHECK (state in ('F', 'V', 'E') )  NOT NULL DEFAULT 'F',
@@ -17,7 +17,7 @@ CREATE TABLE repositories (
   PRIMARY KEY (github_repo, github_owner)
 );
 
-CREATE TABLE findings (
+CREATE TABLE IF NOT EXISTS findings (
   id             INTEGER PRIMARY KEY,
   github_owner   TEXT NOT NULL,
   github_repo    TEXT NOT NULL,
@@ -31,7 +31,7 @@ CREATE TABLE findings (
   extra_info     TEXT NOT NULL
 );
 
-CREATE TABLE issues (
+CREATE TABLE IF NOT EXISTS issues (
   finding_id          INTEGER PRIMARY KEY,
   github_owner        TEXT NOT NULL,
   github_repo         TEXT NOT NULL,

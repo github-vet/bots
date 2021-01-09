@@ -2,10 +2,12 @@ package main
 
 import (
 	"archive/tar"
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/parser"
 	"go/token"
 	"io"
@@ -37,7 +39,7 @@ type VetResult struct {
 	Repository
 	FilePath     string
 	RootCommitID string
-	FileContents []byte
+	Quote        string
 	Start        token.Position
 	End          token.Position
 	Message      string
@@ -233,17 +235,43 @@ func ReportFinding(ir *IssueReporter, fset *token.FileSet, rootCommitID string, 
 			if len(d.Related) >= 2 {
 				extraInfo = d.Related[1].Message
 			}
+			start := fset.Position(d.Pos)
+			end := fset.Position(d.End)
 			// split off into a separate thread so any API call to create the issue doesn't block the remaining analysis.
 			ir.ReportVetResult(VetResult{
 				Repository:   repo,
 				FilePath:     fset.File(d.Pos).Name(),
 				RootCommitID: rootCommitID,
-				FileContents: contents[filename],
-				Start:        fset.Position(d.Pos),
-				End:          fset.Position(d.End),
+				Quote:        QuoteFinding(contents[filename], start.Line, end.Line),
+				Start:        start,
+				End:          end,
 				Message:      d.Message,
 				ExtraInfo:    extraInfo,
 			})
 		}
 	}
+}
+
+// QuoteFinding retrieves the snippet of code that caused the VetResult.
+func QuoteFinding(contents []byte, lineStart, lineEnd int) string {
+	sc := bufio.NewScanner(bytes.NewReader(contents))
+	line := 0
+	var sb strings.Builder
+	for sc.Scan() && line < lineEnd {
+		line++
+		if lineStart == line { // truncate whitespace from the first line (fixes formatting later)
+			sb.WriteString(strings.TrimSpace(sc.Text()) + "\n")
+		}
+		if lineStart < line && line <= lineEnd {
+			sb.WriteString(sc.Text() + "\n")
+		}
+	}
+
+	// run go fmt on the snippet to remove leading whitespace
+	snippet := sb.String()
+	formatted, err := format.Source([]byte(snippet))
+	if err != nil {
+		return snippet
+	}
+	return string(formatted)
 }

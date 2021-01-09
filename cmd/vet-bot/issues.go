@@ -1,12 +1,9 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"crypto/md5"
 	"fmt"
-	"go/format"
 	"log"
 	"net/url"
 	"strings"
@@ -61,38 +58,52 @@ func readMd5sFromDB(bot *VetBot) (map[Md5Checksum]struct{}, error) {
 
 // ReportVetResult asynchronously creates a new GitHub issue to report the findings of the VetResult.
 func (ir *IssueReporter) ReportVetResult(result VetResult) {
-	quote := QuoteFinding(result)
-	md5Sum := md5.Sum([]byte(quote))
+	md5Sum := md5.Sum([]byte(result.Quote))
 	if _, ok := ir.md5s[md5Sum]; ok {
 		log.Printf("found duplicated code in %s", result.FilePath)
 		return
 	}
 	ir.md5s[md5Sum] = struct{}{}
 
-	// TODO: we can't fork this asynchronously until proteus can return an sql.Result
+	// TODO: we can't make this non-blocking until proteus can return an sql.Result
 	//       async usage here causes a race-condition in persistResult with last_insert_rowid()
 	/*ir.bot.wg.Add(1)
 	go func(result VetResult) {*/
-	issueRequest := CreateIssueRequest(result, quote)
-	iss, _, err := ir.bot.client.CreateIssue(ir.owner, ir.repo, &issueRequest)
-	if err != nil {
-		log.Printf("error opening new issue: %v", err)
-		return
+	var (
+		iss *github.Issue
+		err error
+	)
+	if shouldReportToGithub(result.FilePath) {
+		issueRequest := CreateIssueRequest(result)
+		iss, _, err = ir.bot.client.CreateIssue(ir.owner, ir.repo, &issueRequest)
+		if err != nil {
+			log.Printf("error opening new issue: %v", err)
+			return
+		}
 	}
-	ir.persistResult(result, iss, md5Sum, quote)
+
+	ir.persistResult(result, iss, md5Sum)
 	log.Printf("opened new issue at %s", iss.GetHTMLURL())
 	/*ir.bot.wg.Done()
 	}(result)*/
 }
 
-// persistResult writes the finding and issue to the database. It is not thread-safe (yet).
-func (ir *IssueReporter) persistResult(result VetResult, iss *github.Issue, md5Sum [16]byte, quote string) error {
+func shouldReportToGithub(filepath string) bool {
+	if strings.HasSuffix(filepath, "_test.go") || strings.HasPrefix(filepath, "vendor/") {
+		return false
+	}
+	return true
+}
+
+// persistResult writes the provided VetResult and github.Issue to the database (if the issue is non-nil).
+// It is not thread-safe (yet).
+func (ir *IssueReporter) persistResult(result VetResult, issue *github.Issue, md5Sum [16]byte) error {
 	_, err := db.FindingDAO.Create(context.Background(), ir.bot.db, db.Finding{
 		GithubOwner:  result.Owner,
 		GithubRepo:   result.Repo,
 		Filepath:     result.FilePath,
 		RootCommitID: result.RootCommitID,
-		Quote:        quote,
+		Quote:        result.Quote,
 		QuoteMD5Sum:  db.Md5Sum(md5Sum[:]),
 		StartLine:    result.Start.Line,
 		EndLine:      result.End.Line,
@@ -106,11 +117,15 @@ func (ir *IssueReporter) persistResult(result VetResult, iss *github.Issue, md5S
 	if err != nil {
 		return fmt.Errorf("error retrieving finding ID: %w", err)
 	}
+
+	if issue == nil {
+		return nil
+	}
 	_, err = db.IssueDAO.Upsert(context.Background(), ir.bot.db, db.Issue{
 		FindingID:   findingID,
 		GithubOwner: ir.owner,
 		GithubRepo:  ir.repo,
-		GithubID:    iss.GetNumber(),
+		GithubID:    issue.GetNumber(),
 	})
 	if err != nil {
 		return fmt.Errorf("error persisting issue: %w", err)
@@ -120,11 +135,11 @@ func (ir *IssueReporter) persistResult(result VetResult, iss *github.Issue, md5S
 
 // CreateIssueRequest writes the header and description of the GitHub issue which is opened with the result
 // of any findings.
-func CreateIssueRequest(result VetResult, quote string) github.IssueRequest {
+func CreateIssueRequest(result VetResult) github.IssueRequest {
 
 	slocCount := result.End.Line - result.Start.Line + 1
 	title := fmt.Sprintf("%s/%s: %s; %d LoC", result.Owner, result.Repo, result.FilePath, slocCount)
-	body := Description(result, quote)
+	body := Description(result, result.Quote)
 	labels := Labels(result)
 	state := State(result)
 
@@ -153,31 +168,6 @@ func Description(result VetResult, quote string) string {
 		log.Printf("could not create description: %v", err)
 	}
 	return b.String()
-}
-
-// QuoteFinding retrieves the snippet of code that caused the VetResult.
-func QuoteFinding(result VetResult) string {
-	lineStart, lineEnd := result.Start.Line, result.End.Line
-	sc := bufio.NewScanner(bytes.NewReader(result.FileContents))
-	line := 0
-	var sb strings.Builder
-	for sc.Scan() && line < lineEnd {
-		line++
-		if lineStart == line { // truncate whitespace from the first line (fixes formatting later)
-			sb.WriteString(strings.TrimSpace(sc.Text()) + "\n")
-		}
-		if lineStart < line && line <= lineEnd {
-			sb.WriteString(sc.Text() + "\n")
-		}
-	}
-
-	// run go fmt on the snippet to remove leading whitespace
-	snippet := sb.String()
-	formatted, err := format.Source([]byte(snippet))
-	if err != nil {
-		return snippet
-	}
-	return string(formatted)
 }
 
 // Labels returns the list of labels to be applied to a VetResult.
