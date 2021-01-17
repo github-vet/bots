@@ -12,7 +12,8 @@ import (
 )
 
 // Analyzer provides a callgraph structure built to describe function signatures that pass interesting
-// parameters, using whatever type-checking information is available.
+// parameters. Expects type-checking information corresponding to the Uses, Defs, and Selections maps on the
+// types.Info struct.
 var Analyzer = &analysis.Analyzer{
 	Name:             "typegraph",
 	Doc:              "computes a callgraph for the provided files, using type information available.",
@@ -24,7 +25,7 @@ var Analyzer = &analysis.Analyzer{
 
 type Result struct {
 	// Declarations is a map from functions to the declarations found in the AST. All values in this map
-	// are either of type *ast.FuncDecl or *ast.Field (in case of an interface type.
+	// are either of type *ast.FuncDecl or *ast.Field (in case of an interface type).
 	Declarations map[*types.Func]ast.Node
 	// ExternalCalls is a set of source positions for CallExprs which do not call into declared functions.
 	// Calls in this map are into functions not declared into the current source, which are also verified
@@ -54,7 +55,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		switch typed := n.(type) {
 		case *ast.FuncDecl:
 			// add declarations to the list of signatures which have declarations.
-			fun := funcDeclType(pass.TypesInfo, typed)
+			fun := FuncDeclType(pass.TypesInfo, typed)
 			result.Declarations[fun] = typed
 
 		case *ast.InterfaceType:
@@ -65,7 +66,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 
 		case *ast.CallExpr:
 			// retrieve type of Expression
-			call, external := callExprType(pass.TypesInfo, typed)
+			call, external := CallExprType(pass.TypesInfo, typed)
 			if call == nil {
 				if external {
 					result.ExternalCalls = append(result.ExternalCalls, typed)
@@ -73,7 +74,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 				return true
 			}
 
-			if !interestingSignature(call.Type().(*types.Signature)) {
+			if !InterestingSignature(call) {
 				return true
 			}
 
@@ -84,7 +85,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 				return false
 			}
 
-			if !interestingSignature(caller.Type().(*types.Signature)) {
+			if !InterestingSignature(caller) {
 				return true
 			}
 
@@ -98,15 +99,18 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	return &result, nil
 }
 
-// callExprType retrieves the type underlying the provided CallExpr, handling qualified
+// CallExprType retrieves the type underlying the provided CallExpr, handling qualified
 // identifiers and SelectorExpressions. Returns the func type, if present, and a boolean
 // which is true if the call is into external code (i.e. not a cast to a known type or
 // a built-in function).
-func callExprType(info *types.Info, call *ast.CallExpr) (*types.Func, bool) {
+func CallExprType(info *types.Info, call *ast.CallExpr) (*types.Func, bool) {
 	switch typed := call.Fun.(type) {
 	case *ast.SelectorExpr:
 		if sel, ok := info.Uses[typed.Sel]; ok {
-			return sel.(*types.Func), false
+			if fun, ok := sel.(*types.Func); ok {
+				return fun, false
+			}
+			return nil, false
 		} else {
 			if s, ok := info.Selections[typed]; ok {
 				return s.Obj().(*types.Func), false
@@ -129,8 +133,8 @@ func callExprType(info *types.Info, call *ast.CallExpr) (*types.Func, bool) {
 
 }
 
-// funcDeclType retrieves the type underlying the provided FuncDecl.
-func funcDeclType(info *types.Info, fdec *ast.FuncDecl) *types.Func {
+// FuncDeclType retrieves the type underlying the provided FuncDecl.
+func FuncDeclType(info *types.Info, fdec *ast.FuncDecl) *types.Func {
 	return info.Defs[fdec.Name].(*types.Func)
 }
 
@@ -146,9 +150,16 @@ func interfaceFieldType(info *types.Info, field *ast.Field) *types.Func {
 	return nil
 }
 
-// interestingSignature returns true if the provided signature has a pointer receiver,
+// InterestingSignature returns true if the provided signature has a pointer receiver,
 // or an argument which is a pointer or an empty interface. Variadic arguments are supported.
-func interestingSignature(sig *types.Signature) bool {
+func InterestingSignature(fun *types.Func) bool {
+	if fun == nil {
+		return true // missing type declarations are always interesting
+	}
+	sig, ok := fun.Type().(*types.Signature)
+	if !ok {
+		return false
+	}
 	// check for pointer receiver
 	v := sig.Recv()
 	if v != nil {

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"go/types"
 	"sync"
+
+	"golang.org/x/tools/go/analysis"
 )
 
 // CallGraph represents an callgraph, relying on function signatures produced during type-checking.
@@ -165,6 +167,54 @@ func (cg *CallGraph) BFSWithStack(root *types.Func, visit func(sig *types.Func, 
 		}
 	}
 	return nil
+}
+
+// BFS performs a breadth-first search of the callgraph, starting from the provided root node.
+// The provided visit function is called once for every node visited during the search. Each node
+// in the graph is visited once for every path from the provided root node
+func (cg *CallGraph) BFS(root *types.Func, visit func(sig *types.Func)) error {
+	rootID, ok := cg.signatureToId[root]
+	if !ok {
+		return ErrSignatureMissing
+	}
+
+	type frontierNode struct {
+		id    int
+		stack []*types.Func
+	}
+	frontier := make([]int, 0, len(cg.callGraph))
+	frontier = append(frontier, rootID)
+
+	visited := make([]bool, len(cg.signatures))
+	for len(frontier) > 0 {
+		curr := frontier[0]
+		frontier = frontier[1:]
+		visited[curr] = true
+
+		visit(cg.signatures[curr])
+		for _, childID := range cg.callGraph[curr] {
+			if !visited[childID] {
+				frontier = append(frontier, childID)
+			}
+		}
+	}
+	return nil
+}
+
+// InductFactToCallers is a convenience method which uses the callgraph to perform induction, using the
+// calls-by relation to export the provided fact to all callers of the provided root functions.
+func (cg *CallGraph) InductFactToCallers(pass analysis.Pass, roots []*types.Func, fact analysis.Fact) {
+	cg.CalledByBFS(roots, func(sig *types.Func) {
+		pass.ExportObjectFact(sig, fact)
+	})
+}
+
+// InductFactToCallees is a convenience method which uses the callgraph to inductively associate a
+// fact with all functions called by the provided root function.
+func (cg *CallGraph) InductFactToCallees(pass analysis.Pass, root *types.Func, fact analysis.Fact) {
+	cg.BFS(root, func(sig *types.Func) {
+		pass.ExportObjectFact(sig, fact)
+	})
 }
 
 // lazyInitCalledBy initializes the calledByGraph structure if it is nil. Not all applications will require
