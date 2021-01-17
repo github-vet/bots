@@ -131,3 +131,34 @@ func callThirdPartyAcceptListed1(x *int) {
 func callThirdPartyAcceptListed2(x *int) {
 	fmt.Printf("%v", x) // fmt.Printf *is* accept-listed;
 }
+
+func usePtrCmp(x *int) { // want x:"ComparesPtr"
+	usePtrCmp1(x)
+}
+
+func usePtrCmp1(x *int) { // want x:"ComparesPtr"
+	usePtrCmp2(x)
+}
+
+func usePtrCmp2(x *int) { // want x:"ComparesPtr"
+	y := 2
+	if &y == x {
+		fmt.Println("ack!")
+	}
+}
+
+func combinedBadness(x *int) { // want x:"WritesInput|ExternalFunc|ComparesPtr"
+	usePtrCmp(x)
+	callThirdParty(x)
+	writePtr(x)
+}
+
+func combinedBadness1(x *int) { // want x:"WritesInput|ExternalFunc"
+	callThirdParty(x)
+	writePtr(x)
+}
+
+func combinedBadness2(x *int) { // want x:"ExternalFunc"
+	callThirdParty(x)
+	usePtrCmp(x)
+}

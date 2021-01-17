@@ -1,7 +1,6 @@
 package facts_test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/facts"
@@ -10,7 +9,5 @@ import (
 
 func TestInductFacts_BasicTest(t *testing.T) {
 	testdata := analysistest.TestData()
-	results := analysistest.Run(t, testdata, facts.InductFacts, "inductfacts_basic")
-
-	fmt.Println(results[0].Result.(facts.InductResult))
+	analysistest.Run(t, testdata, facts.InductionAnalyzer, "inductfacts_basic")
 }

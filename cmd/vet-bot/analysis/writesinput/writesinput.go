@@ -1,10 +1,11 @@
-package facts
+package writesinput
 
 import (
 	"go/ast"
 	"go/types"
 	"reflect"
 
+	"github.com/github-vet/bots/cmd/vet-bot/analysis/util"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -12,14 +13,14 @@ import (
 
 // Analyzer marks as unsafe all function inputs which appear within the function declaration on
 // the RHS of an assignment statement or within a composite literal.
-var WritesInputAnalyzer = &analysis.Analyzer{
+var Analyzer = &analysis.Analyzer{
 	Name:             "writesptr",
 	Doc:              "marks as unsafe all function inputs appearing on the RHS of an assignment statement or inside a composite literal",
 	FactTypes:        []analysis.Fact{(*WritesInput)(nil)},
-	Run:              runWritesInput,
+	Run:              run,
 	RunDespiteErrors: true,
 	Requires:         []*analysis.Analyzer{inspect.Analyzer},
-	ResultType:       reflect.TypeOf(WritesInputResult{}),
+	ResultType:       reflect.TypeOf(Result{}),
 }
 
 type WritesInput struct{} // => *types.Var is a function input that may be written during function
@@ -30,11 +31,11 @@ func (_ *WritesInput) String() string {
 	return "funcWritesInput"
 }
 
-type WritesInputResult struct {
+type Result struct {
 	Vars map[types.Object]*WritesInput
 }
 
-func runWritesInput(pass *analysis.Pass) (interface{}, error) {
+func run(pass *analysis.Pass) (interface{}, error) {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
 	nodeFilter := []ast.Node{
@@ -47,46 +48,26 @@ func runWritesInput(pass *analysis.Pass) (interface{}, error) {
 		}
 		switch typed := n.(type) {
 		case *ast.AssignStmt:
-			fdec := outermostFuncDecl(stack)
+			fdec := util.OutermostFuncDecl(stack)
 			if fdec != nil {
-				inputs := funcInputs(pass.TypesInfo, fdec)
-				markUnsafe(pass, inputs, typed.Rhs)
+				markUnsafe(pass, util.FuncInputs(pass.TypesInfo, fdec), typed.Rhs)
 			}
 		case *ast.CompositeLit:
-			fdec := outermostFuncDecl(stack)
+			fdec := util.OutermostFuncDecl(stack)
 			if fdec != nil {
-				inputs := funcInputs(pass.TypesInfo, fdec)
-				markUnsafe(pass, inputs, typed.Elts)
+				markUnsafe(pass, util.FuncInputs(pass.TypesInfo, fdec), typed.Elts)
 			}
 		}
 		return true
 	})
 
-	result := WritesInputResult{
+	result := Result{
 		Vars: make(map[types.Object]*WritesInput),
 	}
 	for _, fact := range pass.AllObjectFacts() {
 		result.Vars[fact.Object] = fact.Fact.(*WritesInput)
 	}
 	return result, nil
-}
-
-// funcInputs extracts the input parameters associated with the arguments of the provided function.
-func funcInputs(info *types.Info, fdec *ast.FuncDecl) []types.Object {
-	fun := info.ObjectOf(fdec.Name)
-	if fun == nil {
-		return nil
-	}
-	var result []types.Object
-	if fun, ok := fun.(*types.Func); ok {
-		if sig, ok := fun.Type().(*types.Signature); ok {
-			result = append(result, sig.Recv())
-			for i := 0; i < sig.Params().Len(); i++ {
-				result = append(result, sig.Params().At(i))
-			}
-		}
-	}
-	return result
 }
 
 // markUnsafe marks as unsafe all identifiers appearing in the provided expression array.
@@ -98,7 +79,7 @@ func markUnsafe(pass *analysis.Pass, inputs []types.Object, args []ast.Expr) {
 				continue
 			}
 			if obj := pass.TypesInfo.ObjectOf(typed); obj != nil {
-				if contains(inputs, obj) {
+				if util.Contains(inputs, obj) {
 					pass.ExportObjectFact(obj, new(WritesInput))
 				}
 			}
@@ -108,30 +89,10 @@ func markUnsafe(pass *analysis.Pass, inputs []types.Object, args []ast.Expr) {
 				continue
 			}
 			if obj := pass.TypesInfo.ObjectOf(id); obj != nil {
-				if contains(inputs, obj) {
+				if util.Contains(inputs, obj) {
 					pass.ExportObjectFact(obj, new(WritesInput))
 				}
 			}
 		}
 	}
-}
-
-// outermostFuncDecl returns the source position of the outermost function declaration in  the
-// provided stack.
-func outermostFuncDecl(stack []ast.Node) *ast.FuncDecl {
-	for i := 0; i < len(stack); i++ {
-		if fdec, ok := stack[i].(*ast.FuncDecl); ok {
-			return fdec
-		}
-	}
-	return nil
-}
-
-func contains(arr []types.Object, x types.Object) bool {
-	for _, obj := range arr {
-		if x == obj {
-			return true
-		}
-	}
-	return false
 }

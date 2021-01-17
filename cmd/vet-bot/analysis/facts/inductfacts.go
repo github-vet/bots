@@ -6,24 +6,26 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/github-vet/bots/cmd/vet-bot/analysis/ptrcmp"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/typegraph"
+	"github.com/github-vet/bots/cmd/vet-bot/analysis/writesinput"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
 )
 
-// Analyzer inductively writes facts placed by other analyzers on interesting function arguments
-// throughout the callgraph, based on how the arguments are passed to other functions.
-var InductFacts = &analysis.Analyzer{
+// InductionAnalyzer inductively writes facts placed by other analyzers on interesting function arguments
+// throughout the callgraph, based on how pointer arguments are passed to other functions.
+var InductionAnalyzer = &analysis.Analyzer{
 	Name:             "inductfacts",
 	Doc:              "inducts facts placed by other Analyzers on interesting function arguments through the callgraph",
 	Run:              run,
 	RunDespiteErrors: true,
-	Requires:         []*analysis.Analyzer{inspect.Analyzer, typegraph.Analyzer, WritesInputAnalyzer},
-	ResultType:       reflect.TypeOf(InductResult{}),
+	Requires:         []*analysis.Analyzer{inspect.Analyzer, typegraph.Analyzer, ptrcmp.Analyzer, writesinput.Analyzer},
+	ResultType:       reflect.TypeOf(InductionResult{}),
 }
 
-type InductResult struct {
+type InductionResult struct {
 	Vars map[types.Object]UnsafeFacts
 }
 
@@ -36,6 +38,7 @@ func (*UnsafeFacts) AFact() {}
 const (
 	FactWritesInput UnsafeFacts = 1 << iota
 	FactExternalFunc
+	FactComparesPtr
 )
 
 func (u UnsafeFacts) String() string {
@@ -49,16 +52,19 @@ func (u UnsafeFacts) String() string {
 	if u&FactExternalFunc > 0 {
 		strs = append(strs, "ExternalFunc")
 	}
+	if u&FactComparesPtr > 0 {
+		strs = append(strs, "ComparesPtr")
+	}
 
 	return strings.Join(strs, "|")
 }
 
 func run(pass *analysis.Pass) (interface{}, error) {
-	callsMadeByCaller := liftAllCallFactsToCaller(pass)
+	callsMadeByCaller := extractCallSites(pass)
 
 	inductFactsThroughCallGraph(pass, callsMadeByCaller)
 
-	result := InductResult{
+	result := InductionResult{
 		Vars: make(map[types.Object]UnsafeFacts),
 	}
 
@@ -68,6 +74,8 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	return result, nil
 }
 
+// inductFactsThroughCallGraph performs a BFS over the callgraph and inductively lifts facts from pointer
+// arguments passed to calls inside the function declaration.
 func inductFactsThroughCallGraph(pass *analysis.Pass, callsMadeByCaller map[*types.Func][]*ast.CallExpr) {
 	cg := pass.ResultOf[typegraph.Analyzer].(*typegraph.Result)
 
@@ -87,11 +95,9 @@ func inductFactsThroughCallGraph(pass *analysis.Pass, callsMadeByCaller map[*typ
 	})
 }
 
-// liftAllCallFactsToCaller lifts analysis facts from uninteresting callsites up into the arguments
-// found on the caller. This step is needed because some facts come from callsites which the
-// callgraph considers uninteresting. We also collect and return a map from each function to the
-// CallExpr nodes it contains.
-func liftAllCallFactsToCaller(pass *analysis.Pass) map[*types.Func][]*ast.CallExpr {
+// extractCallSites collect and return a map from each function to all of the CallExpr nodes
+// contained in their declaration. Only functions with interesting signatures are considered.
+func extractCallSites(pass *analysis.Pass) map[*types.Func][]*ast.CallExpr {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
 	nodeFilter := []ast.Node{
@@ -114,19 +120,19 @@ func liftAllCallFactsToCaller(pass *analysis.Pass) map[*types.Func][]*ast.CallEx
 			callerType := typegraph.FuncDeclType(pass.TypesInfo, fdec)
 			callType, _ := typegraph.CallExprType(pass.TypesInfo, typed)
 
-			// TODO(alex): lift facts from "uninteresting" (i.e. exported) call-sites.
 			if !typegraph.InterestingSignature(callerType) || !typegraph.InterestingSignature(callType) {
 				return true
 			}
 			// TODO(alex): ensure uniqueness for performance
 			callsMadeByCaller[callerType] = append(callsMadeByCaller[callerType], typed)
-
 		}
 		return true
 	})
 	return callsMadeByCaller
 }
 
+// forEachIdent calls the provided function for each ast.Ident expression in the arguments of
+// the provided callExpr.
 func forEachIdent(callExpr *ast.CallExpr, f func(idx int, obj *ast.Ident)) {
 	for idx, arg := range callExpr.Args {
 		switch typed := arg.(type) {
@@ -162,8 +168,12 @@ func liftFactsToCaller(pass *analysis.Pass, idx int, callsiteArg types.Object, c
 	}
 
 	// update all base-case facts stored at callsiteArg
-	if _, ok := pass.ResultOf[WritesInputAnalyzer].(WritesInputResult).Vars[v]; ok {
+	if _, ok := pass.ResultOf[writesinput.Analyzer].(writesinput.Result).Vars[v]; ok {
 		updateObjFact(pass, v, FactWritesInput)
+	}
+
+	if _, ok := pass.ResultOf[ptrcmp.Analyzer].(ptrcmp.Result).Vars[v]; ok {
+		updateObjFact(pass, v, FactComparesPtr)
 	}
 
 	// update all inductive facts stored at callsiteArg
@@ -233,4 +243,15 @@ func interestingInputs(fun *types.Func) (result []types.Object, interestingVaria
 		}
 	}
 	return
+}
+
+// outermostFuncDecl returns the source position of the outermost function declaration in  the
+// provided stack.
+func outermostFuncDecl(stack []ast.Node) *ast.FuncDecl {
+	for i := 0; i < len(stack); i++ {
+		if fdec, ok := stack[i].(*ast.FuncDecl); ok {
+			return fdec
+		}
+	}
+	return nil
 }
