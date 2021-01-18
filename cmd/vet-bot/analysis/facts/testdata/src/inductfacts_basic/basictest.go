@@ -66,18 +66,30 @@ func safe2(x int) {
 	unsafeCallsAWriteViaPointerLabyrinth(&x)
 }
 
-func unsafeAsync(x *int) {
+func unsafeAsync(x *int) { // want x:"CapturesAsync"
 	unsafeAsync1(x)
 }
-func unsafeAsync1(x *int) {
+func unsafeAsync1(x *int) { // want x:"CapturesAsync"
 	unsafeAsync2(x)
 }
-func unsafeAsync2(x *int) {
+func unsafeAsync2(x *int) { // want x:"CapturesAsync"
 	unsafeAsync3(x)
 }
-func unsafeAsync3(x *int) {
+func unsafeAsync3(x *int) { // want x:"CapturesAsync"
 	go func() {
+		*x = 3
+	}()
+}
 
+func unsafeAsyncDefer(x *int) { // want x:"CapturesAsync"
+	unsafeAsyncDefer1(x)
+}
+func unsafeAsyncDefer1(x *int) { // want x:"CapturesAsync"
+	unsafeAsyncDefer2(x)
+}
+func unsafeAsyncDefer2(x *int) { // want x:"CapturesAsync"
+	defer func() {
+		*x = 4
 	}()
 }
 
@@ -161,4 +173,12 @@ func combinedBadness1(x *int) { // want x:"WritesInput|ExternalFunc"
 func combinedBadness2(x *int) { // want x:"ExternalFunc"
 	callThirdParty(x)
 	usePtrCmp(x)
+}
+
+func neverCalledPtrCmp(x *int) {
+	// functions which are never called need not report anything
+	y := 2
+	if &y == x {
+		fmt.Println("ack!")
+	}
 }

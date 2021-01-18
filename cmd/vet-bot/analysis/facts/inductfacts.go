@@ -6,8 +6,10 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/github-vet/bots/cmd/vet-bot/analysis/asynccapture"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/ptrcmp"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/typegraph"
+	"github.com/github-vet/bots/cmd/vet-bot/analysis/util"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/writesinput"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -21,8 +23,13 @@ var InductionAnalyzer = &analysis.Analyzer{
 	Doc:              "inducts facts placed by other Analyzers on interesting function arguments through the callgraph",
 	Run:              run,
 	RunDespiteErrors: true,
-	Requires:         []*analysis.Analyzer{inspect.Analyzer, typegraph.Analyzer, ptrcmp.Analyzer, writesinput.Analyzer},
-	ResultType:       reflect.TypeOf(InductionResult{}),
+	Requires: []*analysis.Analyzer{
+		inspect.Analyzer,
+		typegraph.Analyzer,
+		ptrcmp.Analyzer,
+		writesinput.Analyzer,
+		asynccapture.Analyzer},
+	ResultType: reflect.TypeOf(InductionResult{}),
 }
 
 type InductionResult struct {
@@ -39,6 +46,7 @@ const (
 	FactWritesInput UnsafeFacts = 1 << iota
 	FactExternalFunc
 	FactComparesPtr
+	FactCapturesAsync
 )
 
 func (u UnsafeFacts) String() string {
@@ -54,6 +62,9 @@ func (u UnsafeFacts) String() string {
 	}
 	if u&FactComparesPtr > 0 {
 		strs = append(strs, "ComparesPtr")
+	}
+	if u&FactCapturesAsync > 0 {
+		strs = append(strs, "CapturesAsync")
 	}
 
 	return strings.Join(strs, "|")
@@ -112,7 +123,7 @@ func extractCallSites(pass *analysis.Pass) map[*types.Func][]*ast.CallExpr {
 		}
 		switch typed := n.(type) {
 		case *ast.CallExpr:
-			fdec := outermostFuncDecl(stack)
+			fdec := util.OutermostFuncDecl(stack)
 			if fdec == nil { // top-level call
 				return true
 			}
@@ -176,6 +187,10 @@ func liftFactsToCaller(pass *analysis.Pass, idx int, callsiteArg types.Object, c
 		updateObjFact(pass, v, FactComparesPtr)
 	}
 
+	if _, ok := pass.ResultOf[asynccapture.Analyzer].(asynccapture.Result).Vars[v]; ok {
+		updateObjFact(pass, v, FactCapturesAsync)
+	}
+
 	// update all inductive facts stored at callsiteArg
 	var vUnsafe UnsafeFacts
 	pass.ImportObjectFact(v, &vUnsafe)
@@ -196,62 +211,4 @@ func updateObjFact(pass *analysis.Pass, obj types.Object, fact UnsafeFacts) {
 	pass.ImportObjectFact(obj, &export)
 	export |= fact
 	pass.ExportObjectFact(obj, &export)
-}
-
-// InterestingSignature returns references to any interesting inputs of the provided
-// function. Returns a flag if the function has interesting variadic arguments, in which
-// case the last entry in result will have type Slice.
-func interestingInputs(fun *types.Func) (result []types.Object, interestingVariadics bool) {
-	sig, ok := fun.Type().(*types.Signature)
-	if !ok {
-		return
-	}
-
-	// check for pointer receiver
-	v := sig.Recv()
-	if v != nil {
-		if _, ok := v.Type().(*types.Pointer); ok {
-			result = append(result, v)
-		}
-	}
-	// check for pointer arguments or empty interfaces
-	for i := 0; i < sig.Params().Len(); i++ {
-		switch typed := sig.Params().At(i).Type().(type) {
-		case *types.Pointer:
-			result = append(result, sig.Params().At(i))
-		case *types.Interface:
-			if typed.Empty() {
-				result = append(result, sig.Params().At(i))
-			}
-		}
-	}
-	// handle variadic arguments
-	if sig.Variadic() {
-		slice, ok := sig.Params().At(sig.Params().Len() - 1).Type().(*types.Slice)
-		if !ok {
-			return result, false // the type-checker did something very wrong
-		}
-		switch typed := slice.Elem().(type) {
-		case *types.Pointer:
-			result = append(result, sig.Params().At(sig.Params().Len()-1))
-			interestingVariadics = true
-		case *types.Interface:
-			if typed.Empty() {
-				result = append(result, sig.Params().At(sig.Params().Len()-1))
-				interestingVariadics = true
-			}
-		}
-	}
-	return
-}
-
-// outermostFuncDecl returns the source position of the outermost function declaration in  the
-// provided stack.
-func outermostFuncDecl(stack []ast.Node) *ast.FuncDecl {
-	for i := 0; i < len(stack); i++ {
-		if fdec, ok := stack[i].(*ast.FuncDecl); ok {
-			return fdec
-		}
-	}
-	return nil
 }
