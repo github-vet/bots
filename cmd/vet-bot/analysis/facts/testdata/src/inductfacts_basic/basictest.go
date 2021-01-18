@@ -182,3 +182,19 @@ func neverCalledPtrCmp(x *int) {
 		fmt.Println("ack!")
 	}
 }
+
+func nestedCall(x *int) { // want x:"NestedCallsite"
+	nestedCall1(x)
+}
+
+func nestedCall1(x *int) { // want x:"NestedCallsite"
+	nestedCall2(x)
+}
+
+func nestedCall2(x *int) { // want x:"NestedCallsite"
+	func(x *int) { // yes;  it's a nested function call; no; nobody codes this way.
+		fmt.Println(x)
+	}(func(y *int) *int {
+		return y
+	}(x))
+}

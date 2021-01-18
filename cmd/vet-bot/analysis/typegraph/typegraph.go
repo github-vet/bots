@@ -160,13 +160,8 @@ func InterestingSignature(sig *types.Signature) bool {
 	}
 	// check for pointer arguments or empty interfaces
 	for i := 0; i < sig.Params().Len(); i++ {
-		switch typed := sig.Params().At(i).Type().(type) {
-		case *types.Pointer:
+		if InterestingParameter(sig.Params().At(i).Type()) {
 			return true
-		case *types.Interface:
-			if typed.Empty() {
-				return true
-			}
 		}
 	}
 	// handle variadic arguments
@@ -175,13 +170,20 @@ func InterestingSignature(sig *types.Signature) bool {
 		if !ok {
 			return false // type-checker did something wrong
 		}
-		switch typed := slice.Elem().(type) {
-		case *types.Pointer:
+		if InterestingParameter(slice.Elem()) {
 			return true
-		case *types.Interface:
-			if typed.Empty() {
-				return true
-			}
+		}
+	}
+	return false
+}
+
+func InterestingParameter(param types.Type) bool {
+	switch typed := param.(type) {
+	case *types.Pointer:
+		return true
+	case *types.Interface:
+		if typed.Empty() {
+			return true
 		}
 	}
 	return false

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/asynccapture"
+	"github.com/github-vet/bots/cmd/vet-bot/analysis/nestedcallsite"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/ptrcmp"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/typegraph"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/util"
@@ -28,7 +29,8 @@ var InductionAnalyzer = &analysis.Analyzer{
 		typegraph.Analyzer,
 		ptrcmp.Analyzer,
 		writesinput.Analyzer,
-		asynccapture.Analyzer},
+		asynccapture.Analyzer,
+		nestedcallsite.Analyzer},
 	ResultType: reflect.TypeOf(InductionResult{}),
 }
 
@@ -47,6 +49,7 @@ const (
 	FactExternalFunc
 	FactComparesPtr
 	FactCapturesAsync
+	FactNestedCallsite
 )
 
 func (u UnsafeFacts) String() string {
@@ -65,6 +68,9 @@ func (u UnsafeFacts) String() string {
 	}
 	if u&FactCapturesAsync > 0 {
 		strs = append(strs, "CapturesAsync")
+	}
+	if u&FactNestedCallsite > 0 {
+		strs = append(strs, "NestedCallsite")
 	}
 
 	return strings.Join(strs, "|")
@@ -189,6 +195,10 @@ func liftFactsToCaller(pass *analysis.Pass, idx int, callsiteArg types.Object, c
 
 	if _, ok := pass.ResultOf[asynccapture.Analyzer].(asynccapture.Result).Vars[v]; ok {
 		updateObjFact(pass, v, FactCapturesAsync)
+	}
+
+	if _, ok := pass.ResultOf[nestedcallsite.Analyzer].(nestedcallsite.Result).Vars[v]; ok {
+		updateObjFact(pass, v, FactNestedCallsite)
 	}
 
 	// update all inductive facts stored at callsiteArg

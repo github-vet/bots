@@ -28,7 +28,7 @@ type Result struct {
 	Vars map[types.Object]*NestedCallsite
 }
 
-type NestedCallsite struct{} // => a function variable was passed to a nested callsite
+type NestedCallsite struct{} // => a function variable was passed to a nested callsite, possibly circumventing the callgraph
 
 func (_ *NestedCallsite) AFact() {}
 
@@ -126,8 +126,6 @@ func callExprChain(rootExpr *ast.CallExpr, out []*ast.CallExpr) []*ast.CallExpr 
 	if len(rootExpr.Args) != 1 {
 		return append(out, rootExpr)
 	}
-	// TODO: handle qualified expressions e.g. `fmt.Println`
-	// TODO: handle selector expressions resulting in a single function
 	nested, ok := rootExpr.Args[0].(*ast.CallExpr)
 	if !ok {
 		return append(out, rootExpr)
@@ -138,22 +136,39 @@ func callExprChain(rootExpr *ast.CallExpr, out []*ast.CallExpr) []*ast.CallExpr 
 // dangerousChain returns whether a chain of nested calls is dangerous.
 // A dangerous chain is one where pointers can be passed from return values into inputs
 // of another function. Callgraph induction has not been written to handle this case.
-// It suffices to check the two inner-most functions to see if pointer arguments can
-// be passed or type-information is missing. Without more work done on callgraph
-// induction, human effort will be needed in this case.
 //
 // TODO: more work can be done here to match the types of the innermost call with
 // the types of nested calls. If they are not identical the chain is not dangerous.
 func dangerousChain(info *types.Info, chain []*ast.CallExpr) bool {
+	// It suffices to check the two inner-most functions to see if pointer arguments can
+	// be passed or type-information is missing. Any further info passed up the chain
+	// is extra -- by the time the first hand-off has occurred, we require someone to
+	// have a look
 	for i := len(chain) - 1; i >= len(chain)-2; i-- {
 		fun, ok := info.Types[chain[i].Fun]
 
 		if !ok {
 			return true
 		}
-		if sig, ok := fun.Type.(*types.Signature); ok && !typegraph.InterestingSignature(sig) {
-			return false
+		if sig, ok := fun.Type.(*types.Signature); ok {
+			if !typegraph.InterestingSignature(sig) {
+				return false
+			}
+			// we can avoid a false-positive in case the outer call has an interface{} input,
+			// by validating the types of the inner call's outputs.
+			if i == len(chain)-1 && !hasInterestingResults(sig) {
+				return false
+			}
 		}
 	}
 	return true
+}
+
+func hasInterestingResults(sig *types.Signature) bool {
+	for i := 0; i < sig.Results().Len(); i++ {
+		if typegraph.InterestingParameter(sig.Results().At(i).Type()) {
+			return true
+		}
+	}
+	return false
 }
