@@ -36,7 +36,7 @@ type InductionResult struct {
 	Vars map[types.Object]UnsafeFacts
 }
 
-// UnsafeFacts is a bit vector representing multiple ways in which a pointer argument can be unsafe.
+// UnsafeFacts is a bit vector that captures multiple ways in which a pointer argument can be unsafe.
 type UnsafeFacts int
 
 // AFact satisfies analysis.Fact
@@ -131,7 +131,7 @@ func extractCallSites(pass *analysis.Pass) map[*types.Func][]*ast.CallExpr {
 			callerType := typegraph.FuncDeclType(pass.TypesInfo, fdec)
 			callType, _ := typegraph.CallExprType(pass.TypesInfo, typed)
 
-			if !typegraph.InterestingSignature(callerType) || !typegraph.InterestingSignature(callType) {
+			if !typegraph.InterestingFunc(callerType) || !typegraph.InterestingFunc(callType) {
 				return true
 			}
 			// TODO(alex): ensure uniqueness for performance

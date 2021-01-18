@@ -74,7 +74,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 				return true
 			}
 
-			if !InterestingSignature(call) {
+			if !InterestingFunc(call) {
 				return true
 			}
 
@@ -85,7 +85,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 				return false
 			}
 
-			if !InterestingSignature(caller) {
+			if !InterestingFunc(caller) {
 				return true
 			}
 
@@ -150,16 +150,7 @@ func interfaceFieldType(info *types.Info, field *ast.Field) *types.Func {
 	return nil
 }
 
-// InterestingSignature returns true if the provided signature has a pointer receiver,
-// or an argument which is a pointer or an empty interface. Variadic arguments are supported.
-func InterestingSignature(fun *types.Func) bool {
-	if fun == nil {
-		return true // missing type declarations are always interesting
-	}
-	sig, ok := fun.Type().(*types.Signature)
-	if !ok {
-		return false
-	}
+func InterestingSignature(sig *types.Signature) bool {
 	// check for pointer receiver
 	v := sig.Recv()
 	if v != nil {
@@ -194,6 +185,19 @@ func InterestingSignature(fun *types.Func) bool {
 		}
 	}
 	return false
+}
+
+// InterestingFunc returns true if the provided signature has a pointer receiver,
+// or an argument which is a pointer or an empty interface. Variadic arguments are supported.
+func InterestingFunc(fun *types.Func) bool {
+	if fun == nil {
+		return true // missing type declarations are always interesting
+	}
+	sig, ok := fun.Type().(*types.Signature)
+	if !ok {
+		return false
+	}
+	return InterestingSignature(sig)
 }
 
 // outermostFunc returns the types.Object associated with the outermost FuncDecl in the provided stack.
