@@ -12,6 +12,14 @@ func bar(x *int, y *int) { // want x:"funcAsyncCaptures"
 	}()
 }
 
+func asyncUse(x *int) { // want x:"funcAsyncCaptures"
+	go bar2(x)
+}
+
+func asyncUse2(x *int, y *int) { // want y:"funcAsyncCaptures"
+	go bar2(y)
+}
+
 func bar2(x *int) {
 	*x = 3
 }
