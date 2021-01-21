@@ -56,6 +56,9 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		case *ast.FuncDecl:
 			// add declarations to the list of signatures which have declarations.
 			fun := FuncDeclType(pass.TypesInfo, typed)
+			if fun == nil {
+				return true
+			}
 			result.Declarations[fun] = typed
 
 		case *ast.InterfaceType:
@@ -135,7 +138,12 @@ func CallExprType(info *types.Info, call *ast.CallExpr) (*types.Func, bool) {
 
 // FuncDeclType retrieves the type underlying the provided FuncDecl.
 func FuncDeclType(info *types.Info, fdec *ast.FuncDecl) *types.Func {
-	return info.Defs[fdec.Name].(*types.Func)
+	if def, ok := info.Defs[fdec.Name]; ok {
+		if fun, ok := def.(*types.Func); ok {
+			return fun
+		}
+	}
+	return nil
 }
 
 // interfaceFieldType retrieves type info underlying the provided interface field.
@@ -209,7 +217,7 @@ func outermostFunc(info *types.Info, stack []ast.Node) *types.Func {
 			if def, ok := info.Defs[decl.Name]; ok {
 				return def.(*types.Func)
 			}
-			panic("FuncDecl did not have type information; type-checker was not run")
+			return nil
 		}
 	}
 	return nil

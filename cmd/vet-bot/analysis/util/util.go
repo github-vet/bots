@@ -3,6 +3,8 @@ package util
 import (
 	"go/ast"
 	"go/types"
+
+	"golang.org/x/tools/go/analysis"
 )
 
 // Contains returns true if arr contains x.
@@ -42,4 +44,21 @@ func FuncInputs(info *types.Info, fdec *ast.FuncDecl) []types.Object {
 		}
 	}
 	return result
+}
+
+// AddFactBase decorates an analysis.Pass with ExportObjectFacts ImportObjectFacts
+// and AllObjectFacts handlers. A clear function is returned which can be used
+// to reset the fact base between Analyzers.
+func AddFactBase(pass *analysis.Pass) func() {
+	facts := Set{
+		m: make(map[key]analysis.Fact),
+	}
+	pass.AllObjectFacts = facts.AllObjectFacts
+	pass.ExportObjectFact = facts.ExportObjectFact
+	pass.ImportObjectFact = facts.ImportObjectFact
+	return func() {
+		for k := range facts.m {
+			delete(facts.m, k)
+		}
+	}
 }

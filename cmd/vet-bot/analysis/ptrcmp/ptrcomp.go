@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"log"
 	"reflect"
 
 	"golang.org/x/tools/go/analysis"
@@ -18,6 +19,7 @@ var Analyzer = &analysis.Analyzer{
 	Doc:              "marks function arguments which are directly used in comparisons",
 	Run:              run,
 	RunDespiteErrors: true,
+	FactTypes:        []analysis.Fact{(*ComparesInput)(nil)},
 	Requires:         []*analysis.Analyzer{inspect.Analyzer},
 	ResultType:       reflect.TypeOf(Result{}),
 }
@@ -35,6 +37,9 @@ func (_ *ComparesInput) String() string {
 }
 
 func run(pass *analysis.Pass) (interface{}, error) {
+	if pass == nil {
+		log.Fatal("ack! pass was nil!")
+	}
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
 
 	nodeFilter := []ast.Node{

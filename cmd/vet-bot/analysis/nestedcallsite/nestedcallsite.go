@@ -20,6 +20,7 @@ var Analyzer = &analysis.Analyzer{
 	Doc:              "detects callsites with pointer arguments and pointer returns which immediately pass their return values to another function",
 	Run:              run,
 	RunDespiteErrors: true,
+	FactTypes:        []analysis.Fact{(*NestedCallsite)(nil)},
 	Requires:         []*analysis.Analyzer{inspect.Analyzer},
 	ResultType:       reflect.TypeOf(Result{}),
 }

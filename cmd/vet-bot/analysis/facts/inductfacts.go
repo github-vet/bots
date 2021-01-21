@@ -178,7 +178,7 @@ func liftFactsToCaller(pass *analysis.Pass, idx int, callsiteArg types.Object, c
 	// extract variable used in call
 	var v *types.Var
 	callSig := call.Type().(*types.Signature)
-	if idx > callSig.Params().Len() && callSig.Variadic() {
+	if idx >= callSig.Params().Len() && callSig.Variadic() {
 		v = callSig.Params().At(callSig.Params().Len() - 1)
 	} else {
 		v = callSig.Params().At(idx)
