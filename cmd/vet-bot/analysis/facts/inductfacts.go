@@ -40,6 +40,9 @@ type InductionResult struct {
 
 func (ir InductionResult) FactsForCall(info *types.Info, callExpr *ast.CallExpr, id *ast.Ident) (facts UnsafeFacts, external bool) {
 	call, external := typegraph.CallExprType(info, callExpr)
+	if external {
+		return
+	}
 	forEachIdent(callExpr, func(idx int, callIdent *ast.Ident) bool {
 		if callIdent == id {
 			facts = ir.Vars[callVar(idx, call)]

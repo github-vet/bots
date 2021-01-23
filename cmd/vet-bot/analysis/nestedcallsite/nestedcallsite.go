@@ -29,7 +29,9 @@ type Result struct {
 	Vars map[types.Object]*NestedCallsite
 }
 
-type NestedCallsite struct{} // => a function variable was passed to a nested callsite, possibly circumventing the callgraph
+type NestedCallsite struct {
+	Locations []ast.Node
+}
 
 func (_ *NestedCallsite) AFact() {}
 

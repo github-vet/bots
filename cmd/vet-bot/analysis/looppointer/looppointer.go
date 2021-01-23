@@ -207,10 +207,12 @@ func handleCallExpr(pass *analysis.Pass, callExpr *ast.CallExpr, id *ast.Ident, 
 	inductionResult := pass.ResultOf[facts.InductionAnalyzer].(facts.InductionResult)
 	callInfo, external := inductionResult.FactsForCall(pass.TypesInfo, callExpr, id)
 	if external {
-		pass.ExportObjectFact(pass.TypesInfo.ObjectOf(id), &Report{
-			InterestingNode: callExpr,
-			RangeStmt:       rangeLoop,
-			Ident:           id,
+		pass.ExportObjectFact(pass.TypesInfo.ObjectOf(id), &UnsafeCallReport{
+			Report: Report{InterestingNode: callExpr,
+				RangeStmt: rangeLoop,
+				Ident:     id,
+			},
+			CallFacts: facts.FactExternalFunc,
 		})
 		return
 	}
@@ -301,7 +303,6 @@ func (r UnsafeCallReport) String() string {
 }
 
 func reportAll(pass *analysis.Pass, reportsByStmt map[*ast.RangeStmt][]analysis.Fact) {
-	fmt.Println(reportsByStmt)
 	for stmt, facts := range reportsByStmt {
 		pass.Report(analysis.Diagnostic{
 			Pos:     stmt.Pos(),

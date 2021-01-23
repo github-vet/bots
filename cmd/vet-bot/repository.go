@@ -24,6 +24,7 @@ import (
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/facts"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/looppointer"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/nestedcallsite"
+	"github.com/github-vet/bots/cmd/vet-bot/analysis/packid"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/ptrcmp"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/typegraph"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/util"
@@ -70,6 +71,7 @@ var analyzersToRun = []*analysis.Analyzer{
 	nestedcallsite.Analyzer,
 	typegraph.Analyzer,
 	facts.InductionAnalyzer,
+	packid.Analyzer,
 	looppointer.Analyzer,
 }
 
@@ -136,16 +138,14 @@ func getAndUntar(url *url.URL, repo Repository, fset *token.FileSet) (map[string
 				log.Printf("error reading contents of %s: %v", realName, err)
 				return nil, err
 			}
+			file, err := parser.ParseFile(fset, realName, bytes, parser.DeclarationErrors)
+			if err != nil {
+				log.Printf("error parsing file %s: %v", realName, err)
+				return nil, err
+			}
+			filesByPath[path.Dir(realName)] = append(filesByPath[path.Dir(realName)], file)
 			countLines(realName, bytes)
 			stats.AddFile(realName)
-			if !IgnoreFile(realName) {
-				file, err := parser.ParseFile(fset, realName, bytes, parser.DeclarationErrors)
-				if err != nil {
-					log.Printf("error parsing file %s: %v", realName, err)
-					return nil, err
-				}
-				filesByPath[path.Dir(realName)] = append(filesByPath[path.Dir(realName)], file)
-			}
 		}
 	}
 	return filesByPath, nil
@@ -184,8 +184,17 @@ func VetRepo(fset *token.FileSet, filesByPath map[string][]*ast.File, onFind Rep
 	config := loader.Config{
 		Fset:        fset,
 		AllowErrors: true,
+		ParserMode:  parser.DeclarationErrors,
+		TypeCheckFuncBodies: func(path string) bool {
+			if _, ok := filesByPath[path]; ok {
+				return true
+			}
+			return false
+		},
 		TypeChecker: types.Config{
-			Importer: importer.ForCompiler(fset, "gc", nil),
+			Importer: importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
+				return nil, nil
+			}),
 			Error: func(err error) {
 				if err, ok := err.(types.Error); ok {
 					fset.File(err.Pos)
@@ -215,8 +224,7 @@ func VetRepo(fset *token.FileSet, filesByPath map[string][]*ast.File, onFind Rep
 		return
 	}
 	if hardTypeCheckErrs != nil {
-		log.Printf("encountered hard type-checking errors: %v", hardTypeCheckErrs)
-		return
+		log.Println("encountered hard type-checking errors")
 	}
 	fmt.Printf("type-checked %d packages\n", len(prog.AllPackages))
 
@@ -233,7 +241,7 @@ func VetRepo(fset *token.FileSet, filesByPath map[string][]*ast.File, onFind Rep
 			Fset:  fset,
 			Files: pkgInfo.Files,
 			Report: func(d analysis.Diagnostic) {
-				fmt.Println(d.Message)
+				fmt.Println(d.Message, d.Related)
 			},
 			ResultOf:  make(map[*analysis.Analyzer]interface{}),
 			TypesInfo: &pkgInfo.Info,
