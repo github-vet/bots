@@ -38,11 +38,25 @@ type InductionResult struct {
 	Vars map[types.Object]UnsafeFacts
 }
 
+func (ir InductionResult) FactsForCall(info *types.Info, callExpr *ast.CallExpr, id *ast.Ident) (facts UnsafeFacts, external bool) {
+	call, external := typegraph.CallExprType(info, callExpr)
+	forEachIdent(callExpr, func(idx int, callIdent *ast.Ident) {
+		if callIdent == id {
+			facts = ir.Vars[callVar(idx, call)]
+		}
+	})
+	return facts, external
+}
+
 // UnsafeFacts is a bit vector that captures multiple ways in which a pointer argument can be unsafe.
 type UnsafeFacts int
 
 // AFact satisfies analysis.Fact
 func (*UnsafeFacts) AFact() {}
+
+func (u UnsafeFacts) Safe() bool {
+	return u == 0
+}
 
 const (
 	FactWritesInput UnsafeFacts = 1 << iota
@@ -53,7 +67,7 @@ const (
 )
 
 func (u UnsafeFacts) String() string {
-	if u == 0 {
+	if u.Safe() {
 		return "Safe"
 	}
 	var strs []string
@@ -102,7 +116,7 @@ func inductFactsThroughCallGraph(pass *analysis.Pass, callsMadeByCaller map[*typ
 			callType, exported := typegraph.CallExprType(pass.TypesInfo, call)
 			forEachIdent(call, func(idx int, ident *ast.Ident) {
 				if callType != nil {
-					liftFactsToCaller(pass, idx, pass.TypesInfo.ObjectOf(ident), callType)
+					liftFactsToCaller(pass, pass.TypesInfo.ObjectOf(ident), callVar(idx, callType))
 				}
 				if exported {
 					exportExternalFuncFact(pass, pass.TypesInfo.ObjectOf(ident))
@@ -170,18 +184,10 @@ func forEachIdent(callExpr *ast.CallExpr, f func(idx int, obj *ast.Ident)) {
 
 // liftFactsToCaller examines the parameter from the callsite signature and lifts any facts found into the
 // signature of the caller.
-func liftFactsToCaller(pass *analysis.Pass, idx int, callsiteArg types.Object, call *types.Func) {
+func liftFactsToCaller(pass *analysis.Pass, callsiteArg types.Object, v *types.Var) {
 	if _, ok := callsiteArg.Type().(*types.Pointer); !ok {
 		// only lift facts attached to pointer arguments
 		return
-	}
-	// extract variable used in call
-	var v *types.Var
-	callSig := call.Type().(*types.Signature)
-	if idx >= callSig.Params().Len() && callSig.Variadic() {
-		v = callSig.Params().At(callSig.Params().Len() - 1)
-	} else {
-		v = callSig.Params().At(idx)
 	}
 
 	// update all base-case facts stored at callsiteArg
@@ -206,6 +212,16 @@ func liftFactsToCaller(pass *analysis.Pass, idx int, callsiteArg types.Object, c
 	pass.ImportObjectFact(v, &vUnsafe)
 	if vUnsafe != 0 {
 		updateObjFact(pass, callsiteArg, vUnsafe)
+	}
+}
+
+// callVar extracts the variable used at the given index of the provided call.
+func callVar(idx int, call *types.Func) *types.Var {
+	callSig := call.Type().(*types.Signature)
+	if idx >= callSig.Params().Len() && callSig.Variadic() {
+		return callSig.Params().At(callSig.Params().Len() - 1)
+	} else {
+		return callSig.Params().At(idx)
 	}
 }
 

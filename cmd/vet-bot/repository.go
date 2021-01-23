@@ -22,6 +22,7 @@ import (
 
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/asynccapture"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/facts"
+	"github.com/github-vet/bots/cmd/vet-bot/analysis/looppointer"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/nestedcallsite"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/ptrcmp"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/typegraph"
@@ -69,6 +70,7 @@ var analyzersToRun = []*analysis.Analyzer{
 	nestedcallsite.Analyzer,
 	typegraph.Analyzer,
 	facts.InductionAnalyzer,
+	looppointer.Analyzer,
 }
 
 // VetRepositoryBulk streams the contents of a Github repository as a tarball, analyzes each go file, and reports the results.
@@ -186,6 +188,7 @@ func VetRepo(fset *token.FileSet, filesByPath map[string][]*ast.File, onFind Rep
 			Importer: importer.ForCompiler(fset, "gc", nil),
 			Error: func(err error) {
 				if err, ok := err.(types.Error); ok {
+					fset.File(err.Pos)
 					if !err.Soft {
 						hardTypeCheckErrs = append(hardTypeCheckErrs, err)
 					}
