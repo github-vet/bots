@@ -94,6 +94,8 @@ func checkRangeLoopVar(pass *analysis.Pass, id *ast.Ident, stack []ast.Node, ran
 			handleAssignStmt(pass, typed, id, stack, rangeLoop)
 		case *ast.CallExpr:
 			handleCallExpr(pass, typed, id, stack, rangeLoop)
+		case *ast.BinaryExpr:
+			handleBinaryExpr(pass, typed, id, rangeLoop)
 		}
 	}
 }
@@ -107,17 +109,31 @@ func innermostInterestingNode(stack []ast.Node) ast.Node {
 			return typed
 		case *ast.AssignStmt:
 			return typed
+		case *ast.BinaryExpr:
+			return typed
 		}
 	}
 	return nil
 }
 
-func handleCompositeLit(pass *analysis.Pass, compLit *ast.CompositeLit, id *ast.Ident, rangeLoop *ast.RangeStmt) {
+func handleBinaryExpr(pass *analysis.Pass, binExp *ast.BinaryExpr, id *ast.Ident, rangeLoop *ast.RangeStmt) {
+	if binExp.Op != token.EQL && binExp.Op != token.NEQ {
+		return
+	}
 	pass.ExportObjectFact(pass.TypesInfo.ObjectOf(id), &Report{
-		InterestingNode: compLit,
+		InterestingNode: binExp,
 		RangeStmt:       rangeLoop,
 		Ident:           id,
 	})
+}
+
+func handleCompositeLit(pass *analysis.Pass, compLit *ast.CompositeLit, id *ast.Ident, rangeLoop *ast.RangeStmt) {
+	pass.ExportObjectFact(pass.TypesInfo.ObjectOf(id),
+		&Report{
+			InterestingNode: compLit,
+			RangeStmt:       rangeLoop,
+			Ident:           id,
+		})
 }
 
 func handleAssignStmt(pass *analysis.Pass, assignment *ast.AssignStmt, id *ast.Ident, stack []ast.Node, rangeLoop *ast.RangeStmt) {
@@ -235,9 +251,9 @@ func (_ *Report) AFact() {}
 
 func (r Report) RelatedInfo(pass *analysis.Pass) analysis.RelatedInformation {
 	switch r.InterestingNode.(type) {
-	case *ast.AssignStmt, *ast.CompositeLit:
+	case *ast.AssignStmt, *ast.CompositeLit, *ast.BinaryExpr:
 	default:
-		log.Printf(r.String())
+		log.Printf("asked for RelatedInfo on unexpected ast.Node type: %s", astutil.NodeDescription(r.InterestingNode))
 		return analysis.RelatedInformation{}
 	}
 	return analysis.RelatedInformation{
@@ -253,6 +269,8 @@ func (r Report) String() string {
 		return fmt.Sprintf("&%s used on RHS of assign statement", r.Ident.Name)
 	case *ast.CompositeLit:
 		return fmt.Sprintf("&%s used inside a composite literal", r.Ident.Name)
+	case *ast.BinaryExpr:
+		return fmt.Sprintf("&%s used in a pointer comparison", r.Ident.Name)
 	default:
 		return fmt.Sprintf("unexpected interesting node type %s for range-loop variable %s", astutil.NodeDescription(r.InterestingNode), r.Ident.Name)
 	}

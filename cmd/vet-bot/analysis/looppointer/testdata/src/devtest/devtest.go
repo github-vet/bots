@@ -44,6 +44,11 @@ func main() {
 	for _, z := range []int{1} { // want "suspicious use of range-loop variable" z:"&z used on RHS of assign statement"
 		x = &z
 	}
+	for _, z := range []int{2, 3, 4} { // want "suspicious use of range-loop variable" z:"&z used in a pointer comparison"
+		if x == &z {
+			fmt.Println("woohoo!")
+		}
+	}
 	for _, z := range []int{1, 2, 3, 4} { // want z:"variable z passed to unsafe call; reported as: ComparesPtr"
 		ptrCmp(&z, &z)
 	}

@@ -15,3 +15,10 @@ func bar(x *int) { // want x:"funcComparesInput"
 		fmt.Println("ick!")
 	}
 }
+
+func baz(x *int) { // want x:"funcComparesInput"
+	var y *int
+	if y == x {
+		fmt.Println("ugh!")
+	}
+}

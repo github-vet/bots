@@ -153,8 +153,8 @@ func usePtrCmp1(x *int) { // want x:"ComparesPtr"
 }
 
 func usePtrCmp2(x *int) { // want x:"ComparesPtr"
-	y := 2
-	if &y == x {
+	var y *int
+	if y == x {
 		fmt.Println("ack!")
 	}
 }
