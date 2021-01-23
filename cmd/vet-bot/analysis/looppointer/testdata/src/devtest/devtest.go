@@ -44,6 +44,9 @@ func main() {
 	for _, z := range []int{1} { // want "suspicious use of range-loop variable" z:"&z used on RHS of assign statement"
 		x = &z
 	}
+	for _, z := range []int{1, 2, 3, 4} { // want z:"variable z passed to unsafe call; reported as: ComparesPtr"
+		ptrCmp(&z, &z)
+	}
 	fmt.Println(x, y) // for use
 }
 
@@ -171,4 +174,20 @@ func callQualifiedIdentifier1(x *int) {
 
 func callQualifiedIdentifier2(x *int) {
 	fmt.Printf("%v", x) // fmt.Printf *is* accept-listed;
+}
+
+func ptrCmp(x *int, y *int) {
+	ptrCmp1(x)
+	safe(y)
+}
+
+func ptrCmp1(x *int) {
+	ptrCmp2(x)
+}
+
+func ptrCmp2(x *int) {
+	var y *int
+	if x == y {
+		fmt.Println("ack!")
+	}
 }
