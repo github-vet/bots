@@ -8,7 +8,7 @@ import (
 
 	"github.com/github-vet/bots/cmd/vet-bot/acceptlist"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/facts"
-	"github.com/github-vet/bots/cmd/vet-bot/packid"
+	"github.com/github-vet/bots/cmd/vet-bot/analysis/packid"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/astutil"

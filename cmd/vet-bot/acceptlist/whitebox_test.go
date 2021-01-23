@@ -3,7 +3,7 @@ package acceptlist
 import (
 	"testing"
 
-	"github.com/github-vet/bots/cmd/vet-bot/packid"
+	"github.com/github-vet/bots/cmd/vet-bot/analysis/packid"
 	"github.com/stretchr/testify/assert"
 )
 
