@@ -8,27 +8,27 @@ import (
 
 func main() {
 	var a A
-	for _, z := range []int{1} { // want z:"variable z passed to unsafe call; reported as: WritesInput"
+	for _, z := range []int{1} { // want "suspicious use of range-loop variable" z:"variable z passed to unsafe call; reported as: WritesInput"
 		var y int
 		a.unsafeWrites(&z, &y)
 	}
-	for _, x := range []int{1, 2} { // want x:"variable x passed to unsafe call; reported as: CapturesAsync"
+	for _, x := range []int{1, 2} { // want "suspicious use of range-loop variable" x:"variable x passed to unsafe call; reported as: CapturesAsync"
 		unsafeAsync(&x)
 	}
 	for _, x := range []int{1, 2} {
 		a.safe("hello", &x)
 	}
-	for _, x := range []int{1, 2, 3, 4} { // want x:"variable x passed to unsafe call; reported as: WritesInput"
+	for _, x := range []int{1, 2, 3, 4} { // want "suspicious use of range-loop variable" x:"variable x passed to unsafe call; reported as: WritesInput"
 		unsafeCallsAWrite(a, &x)
 	}
-	for _, y := range []int{1} { // want y:"variable y passed to unsafe call; reported as: WritesInput"
+	for _, y := range []int{1} { // want "suspicious use of range-loop variable" y:"variable y passed to unsafe call; reported as: WritesInput"
 		unsafeCallsAWriteViaPointerLabyrinth(&y)
 	}
 	for _, w := range []int{1} {
 		safe(&w)
 	}
-	for _, x := range []int{1} { // want x: "variable x passed to unsafe call; reported as: ExternalFunc"
-		callThirdParty(&x)
+	for _, x := range []int{1} { // want "suspicious use of range-loop variable" x: "variable x passed to unsafe call; reported as: ExternalFunc"
+		callExternal(&x)
 	}
 	for _, y := range []int{1} {
 		callQualifiedIdentifier(&y)
@@ -49,8 +49,8 @@ func main() {
 			fmt.Println("woohoo!")
 		}
 	}
-	for _, z := range []int{1, 2, 3, 4} { // want z:"variable z passed to unsafe call; reported as: ComparesPtr"
-		ptrCmp(&z, &z)
+	for _, z := range []int{1, 2, 3, 4} { // want "suspicious use of range-loop variable" z:"variable z passed to unsafe call; reported as: ComparesPtr"
+		ptrCmp(&z, x)
 	}
 	fmt.Println(x, y) // for use
 }
@@ -64,24 +64,6 @@ type UnsafeStruct struct {
 }
 
 type A struct {
-}
-type B struct {
-	a A
-}
-
-func (b *B) unsafeWritesNoArgs() {
-	b.a.unsafeAsyncToWrite(2)
-}
-
-func (a *A) veryUnsafeNoArgs() {
-	var x, y int
-	z := a
-	z.unsafeAsyncToWrite(x)
-
-	a.unsafeWrites(&x, &y)
-	a.safe("1", &x)
-	unsafeAsync(&x)
-	unsafeAsync(&x)
 }
 
 func (a *A) unsafeAsyncToWrite(x int) {
@@ -157,7 +139,7 @@ func writePtr(x *int) {
 	fmt.Println(y)
 }
 
-func callThirdParty(x *int) {
+func callExternal(x *int) {
 	callThirdParty1(x)
 }
 

@@ -40,10 +40,12 @@ type InductionResult struct {
 
 func (ir InductionResult) FactsForCall(info *types.Info, callExpr *ast.CallExpr, id *ast.Ident) (facts UnsafeFacts, external bool) {
 	call, external := typegraph.CallExprType(info, callExpr)
-	forEachIdent(callExpr, func(idx int, callIdent *ast.Ident) {
+	forEachIdent(callExpr, func(idx int, callIdent *ast.Ident) bool {
 		if callIdent == id {
 			facts = ir.Vars[callVar(idx, call)]
+			return false
 		}
+		return true
 	})
 	return facts, external
 }
@@ -114,13 +116,14 @@ func inductFactsThroughCallGraph(pass *analysis.Pass, callsMadeByCaller map[*typ
 		calls := callsMadeByCaller[caller]
 		for _, call := range calls {
 			callType, exported := typegraph.CallExprType(pass.TypesInfo, call)
-			forEachIdent(call, func(idx int, ident *ast.Ident) {
+			forEachIdent(call, func(idx int, ident *ast.Ident) bool {
 				if callType != nil {
 					liftFactsToCaller(pass, pass.TypesInfo.ObjectOf(ident), callVar(idx, callType))
 				}
 				if exported {
 					exportExternalFuncFact(pass, pass.TypesInfo.ObjectOf(ident))
 				}
+				return true
 			})
 		}
 	})
@@ -164,20 +167,24 @@ func extractCallSites(pass *analysis.Pass) map[*types.Func][]*ast.CallExpr {
 
 // forEachIdent calls the provided function for each ast.Ident expression in the arguments of
 // the provided callExpr.
-func forEachIdent(callExpr *ast.CallExpr, f func(idx int, obj *ast.Ident)) {
+func forEachIdent(callExpr *ast.CallExpr, f func(idx int, obj *ast.Ident) bool) {
 	for idx, arg := range callExpr.Args {
 		switch typed := arg.(type) {
 		case *ast.Ident:
 			if typed.Obj == nil {
 				continue // argument did not come from the caller's signature.
 			}
-			f(idx, typed)
+			if !f(idx, typed) {
+				return
+			}
 		case *ast.UnaryExpr:
 			id, ok := typed.X.(*ast.Ident) // TODO: probably need to handle SelectorExpr here; understand implicit pointer references
 			if !ok || id.Obj == nil {
 				continue
 			}
-			f(idx, id)
+			if !f(idx, id) {
+				return
+			}
 		}
 	}
 }

@@ -47,8 +47,15 @@ func run(pass *analysis.Pass) (interface{}, error) {
 
 	reportsByRangeStmt := make(map[*ast.RangeStmt][]analysis.Fact)
 	for _, fact := range pass.AllObjectFacts() {
-		if report, ok := fact.Fact.(*Report); ok {
-			reportsByRangeStmt[report.RangeStmt] = append(reportsByRangeStmt[report.RangeStmt], fact.Fact)
+		var rangeStmt *ast.RangeStmt
+		switch typed := fact.Fact.(type) {
+		case *Report:
+			rangeStmt = typed.RangeStmt
+		case *UnsafeCallReport:
+			rangeStmt = typed.RangeStmt
+		}
+		if rangeStmt != nil {
+			reportsByRangeStmt[rangeStmt] = append(reportsByRangeStmt[rangeStmt], fact.Fact)
 		}
 	}
 	reportAll(pass, reportsByRangeStmt)
@@ -294,6 +301,7 @@ func (r UnsafeCallReport) String() string {
 }
 
 func reportAll(pass *analysis.Pass, reportsByStmt map[*ast.RangeStmt][]analysis.Fact) {
+	fmt.Println(reportsByStmt)
 	for stmt, facts := range reportsByStmt {
 		pass.Report(analysis.Diagnostic{
 			Pos:     stmt.Pos(),
