@@ -82,7 +82,7 @@ func sampleRepos(vetBot *VetBot, sampler *RepositorySampler, issueReporter *Issu
 			return
 		default:
 			err := sampler.Sample(func(r Repository) error {
-				return VetRepositoryToDisk(vetBot, issueReporter, r)
+				return VetRepositoryBulk(vetBot, issueReporter, r)
 			})
 			if err != nil {
 				log.Printf("stopping scan due to error: %v", err)
@@ -96,7 +96,7 @@ func sampleRepos(vetBot *VetBot, sampler *RepositorySampler, issueReporter *Issu
 }
 
 func sampleRepo(vetBot *VetBot, issueReporter *IssueReporter) {
-	err := VetRepositoryToDisk(vetBot, issueReporter, Repository{
+	err := VetRepositoryBulk(vetBot, issueReporter, Repository{
 		Owner: vetBot.opts.SingleOwner,
 		Repo:  vetBot.opts.SingleRepo,
 	})

@@ -84,7 +84,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 			// retrieve the type of the enclosing function declaration
 			caller := outermostFunc(pass.TypesInfo, stack)
 			if caller == nil {
-				log.Printf("FuncDecl did not have type information associated; was type-checking run?")
+				log.Printf("FuncDecl %s did not have type information associated; was type-checking run?", types.ExprString(typed))
 				return false
 			}
 
