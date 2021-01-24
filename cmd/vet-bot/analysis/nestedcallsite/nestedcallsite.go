@@ -7,6 +7,7 @@ import (
 
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/typegraph"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/util"
+	"github.com/github-vet/bots/cmd/vet-bot/stats"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -88,12 +89,14 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		}
 		return true
 	})
+
 	result := Result{
 		Vars: make(map[types.Object]*NestedCallsite),
 	}
 	for _, fact := range pass.AllObjectFacts() {
 		result.Vars[fact.Object] = fact.Fact.(*NestedCallsite)
 	}
+	stats.AddCount(stats.StatNestedCallsiteHits, len(pass.AllObjectFacts()))
 	return result, nil
 }
 

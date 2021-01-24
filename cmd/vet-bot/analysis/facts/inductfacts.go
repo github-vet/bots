@@ -1,6 +1,7 @@
 package facts
 
 import (
+	"fmt"
 	"go/ast"
 	"go/types"
 	"reflect"
@@ -40,11 +41,12 @@ type InductionResult struct {
 
 func (ir InductionResult) FactsForCall(info *types.Info, callExpr *ast.CallExpr, id *ast.Ident) (facts UnsafeFacts, external bool) {
 	call, external := typegraph.CallExprType(info, callExpr)
-	if external {
+	if external || call == nil {
 		return
 	}
 	forEachIdent(callExpr, func(idx int, callIdent *ast.Ident) bool {
 		if callIdent == id {
+			fmt.Println(callIdent, id, idx, callVar(idx, call), ir.Vars[callVar(idx, call)])
 			facts = ir.Vars[callVar(idx, call)]
 			return false
 		}
@@ -170,7 +172,7 @@ func extractCallSites(pass *analysis.Pass) map[*types.Func][]*ast.CallExpr {
 
 // forEachIdent calls the provided function for each ast.Ident expression in the arguments of
 // the provided callExpr.
-func forEachIdent(callExpr *ast.CallExpr, f func(idx int, obj *ast.Ident) bool) {
+func forEachIdent(callExpr *ast.CallExpr, f func(idx int, obj *ast.Ident) (proceed bool)) {
 	for idx, arg := range callExpr.Args {
 		switch typed := arg.(type) {
 		case *ast.Ident:
@@ -181,9 +183,9 @@ func forEachIdent(callExpr *ast.CallExpr, f func(idx int, obj *ast.Ident) bool) 
 				return
 			}
 		case *ast.UnaryExpr:
-			id, ok := typed.X.(*ast.Ident) // TODO: probably need to handle SelectorExpr here; understand implicit pointer references
+			id, ok := typed.X.(*ast.Ident)
 			if !ok || id.Obj == nil {
-				continue
+				continue // TODO: probably need to handle SelectorExpr here; understand implicit pointer references
 			}
 			if !f(idx, id) {
 				return
@@ -195,7 +197,7 @@ func forEachIdent(callExpr *ast.CallExpr, f func(idx int, obj *ast.Ident) bool) 
 // liftFactsToCaller examines the parameter from the callsite signature and lifts any facts found into the
 // signature of the caller.
 func liftFactsToCaller(pass *analysis.Pass, callsiteArg types.Object, v *types.Var) {
-	if _, ok := callsiteArg.Type().(*types.Pointer); !ok {
+	if !typegraph.InterestingParameter(callsiteArg.Type()) {
 		// only lift facts attached to pointer arguments
 		return
 	}
@@ -230,12 +232,17 @@ func callVar(idx int, call *types.Func) *types.Var {
 	callSig := call.Type().(*types.Signature)
 	if idx >= callSig.Params().Len() && callSig.Variadic() {
 		return callSig.Params().At(callSig.Params().Len() - 1)
-	} else {
-		return callSig.Params().At(idx)
 	}
+	return callSig.Params().At(idx)
 }
 
 func exportExternalFuncFact(pass *analysis.Pass, callsiteArg types.Object) {
+	if callsiteArg == nil {
+		// since types of function parameters are declared in the signature;
+		// callsite arguments without type information cannot come from a
+		// signature, so they're irrelevant to our callgraph.
+		return
+	}
 	if _, ok := callsiteArg.Type().(*types.Pointer); !ok {
 		return
 	}

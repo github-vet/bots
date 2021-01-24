@@ -19,6 +19,7 @@ type opts struct {
 	DbBootstrapFolder string
 	ReposFile         string
 	DatabaseFile      string
+	UntarDir          string
 }
 
 // OptSchema defines a configuration option which can come either from the command-line or
@@ -53,6 +54,8 @@ var optSchemas []OptSchema = []OptSchema{
 		func(o *opts, value string) error { o.AcceptListPath = value; return nil }, ""},
 	{"DATABASE_FILE", "db", "path to database sqlite3 file", "", false,
 		func(o *opts, value string) error { o.DatabaseFile = value; return nil }, ""},
+	{"UNTAR_DIR", "untar-path", "path to working directory for untaring repositories", "", false,
+		func(o *opts, value string) error { o.UntarDir = value; return nil }, ""},
 	{"REPO_TO_READ", "read-single", "owner/repository of single repository to read", "", false,
 		func(o *opts, value string) error {
 			o.SingleOwner, o.SingleRepo = parseRepoString(value, "single")

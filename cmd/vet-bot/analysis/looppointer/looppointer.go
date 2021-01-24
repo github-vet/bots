@@ -9,6 +9,7 @@ import (
 	"github.com/github-vet/bots/cmd/vet-bot/acceptlist"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/facts"
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/packid"
+	"github.com/github-vet/bots/cmd/vet-bot/stats"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/astutil"
@@ -44,6 +45,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		check(pass, n, stack, rangeStmts)
 		return true
 	})
+	fmt.Println(len(rangeStmts), rangeStmts)
 
 	reportsByRangeStmt := make(map[*ast.RangeStmt][]analysis.Fact)
 	for _, fact := range pass.AllObjectFacts() {
@@ -59,6 +61,8 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		}
 	}
 	reportAll(pass, reportsByRangeStmt)
+	stats.AddCount(stats.StatReportedRangeLoops, len(reportsByRangeStmt))
+	stats.AddCount(stats.StatReportedRangeLoopIssues, len(pass.AllObjectFacts()))
 	return nil, nil
 }
 
@@ -66,6 +70,7 @@ func check(pass *analysis.Pass, n ast.Node, stack []ast.Node, rangeStmts map[tok
 
 	switch typed := n.(type) {
 	case *ast.RangeStmt:
+		stats.AddCount(stats.StatRangeLoops, 1)
 		if id, ok := typed.Key.(*ast.Ident); ok {
 			rangeStmts[id.Pos()] = typed
 		}
@@ -81,6 +86,7 @@ func checkUnaryExpr(pass *analysis.Pass, unaryExpr *ast.UnaryExpr, stack []ast.N
 	if unaryExpr.Op != token.AND {
 		return
 	}
+	stats.AddCount(stats.StatUnaryReferenceExpr, 1)
 	id := getIdentity(unaryExpr.X)
 	if id == nil || id.Obj == nil {
 		return
@@ -206,6 +212,7 @@ func handleCallExpr(pass *analysis.Pass, callExpr *ast.CallExpr, id *ast.Ident, 
 
 	inductionResult := pass.ResultOf[facts.InductionAnalyzer].(facts.InductionResult)
 	callInfo, external := inductionResult.FactsForCall(pass.TypesInfo, callExpr, id)
+	fmt.Println(callExpr, callInfo, external)
 	if external {
 		pass.ExportObjectFact(pass.TypesInfo.ObjectOf(id), &UnsafeCallReport{
 			Report: Report{InterestingNode: callExpr,

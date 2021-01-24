@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/util"
+	"github.com/github-vet/bots/cmd/vet-bot/stats"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -14,7 +15,7 @@ import (
 // Analyzer marks as unsafe all function inputs which appear within the function declaration on
 // the RHS of an assignment statement or within a composite literal.
 var Analyzer = &analysis.Analyzer{
-	Name:             "writesptr",
+	Name:             "writesinput",
 	Doc:              "marks as unsafe all function inputs appearing on the RHS of an assignment statement or inside a composite literal",
 	FactTypes:        []analysis.Fact{(*WritesInput)(nil)},
 	Run:              run,
@@ -67,6 +68,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	for _, fact := range pass.AllObjectFacts() {
 		result.Vars[fact.Object] = fact.Fact.(*WritesInput)
 	}
+	stats.AddCount(stats.StatWritesInputHits, len(pass.AllObjectFacts()))
 	return result, nil
 }
 

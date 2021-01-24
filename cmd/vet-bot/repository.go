@@ -1,22 +1,17 @@
 package main
 
 import (
-	"archive/tar"
 	"bufio"
 	"bytes"
-	"compress/gzip"
+	"errors"
 	"fmt"
-	"go/ast"
 	"go/format"
-	"go/importer"
-	"go/parser"
 	"go/token"
-	"go/types"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 
@@ -33,13 +28,17 @@ import (
 	"github.com/google/go-github/v32/github"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
-	"golang.org/x/tools/go/loader"
+	"golang.org/x/tools/go/packages"
 )
 
 // Repository encapsulates the information needed to lookup a GitHub repository.
 type Repository struct {
 	Owner string
 	Repo  string
+}
+
+func (r Repository) String() string {
+	return r.Owner + "/" + r.Repo
 }
 
 // VetResult reports a few lines of code in a GitHub repository for consideration.
@@ -75,176 +74,69 @@ var analyzersToRun = []*analysis.Analyzer{
 	looppointer.Analyzer,
 }
 
-// VetRepositoryBulk streams the contents of a Github repository as a tarball, analyzes each go file, and reports the results.
-func VetRepositoryBulk(bot *VetBot, ir *IssueReporter, repo Repository) error {
-	rootCommitID, err := GetRootCommitID(bot, repo)
+func VetRepositoryToDisk(bot *VetBot, ir *IssueReporter, repo Repository) (err error) {
+	/*rootCommitID, err := GetRootCommitID(bot, repo)
 	if err != nil {
 		log.Printf("failed to retrieve root commit ID for repo %s/%s", repo.Owner, repo.Repo)
 		return err
-	}
+	}*/
+	stats.Clear()
 	url, _, err := bot.client.GetArchiveLink(repo.Owner, repo.Repo, github.Tarball, nil, false)
 	if err != nil {
 		log.Printf("failed to get tar link for %s/%s: %v", repo.Owner, repo.Repo, err)
 		return err
 	}
-	fset := token.NewFileSet()
-	filesByPath, err := getAndUntar(url, repo, fset)
+	err = untarViaHttpToDir(url, repo, bot.opts.UntarDir)
+	defer func() {
+		err = cleanWorkDir(bot.opts.UntarDir)
+	}()
 	if err != nil {
+		log.Printf("could not untar archive to %s", bot.opts.UntarDir)
 		return err
 	}
-	VetRepo(fset, filesByPath, ReportFinding(ir, fset, rootCommitID, repo))
-	stats.FlushStats(bot.statsWriter, repo.Owner, repo.Repo)
-	return nil
+
+	return VetReposFromDisk(bot, ir, repo, bot.opts.UntarDir)
 }
 
-func getAndUntar(url *url.URL, repo Repository, fset *token.FileSet) (map[string][]*ast.File, error) {
+func untarViaHttpToDir(url *url.URL, repo Repository, outDir string) error {
 	resp, err := http.Get(url.String())
 	if err != nil {
 		log.Printf("failed to download tar contents: %v", err)
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
-	unzipped, err := gzip.NewReader(resp.Body)
+	return untar(resp.Body, outDir, repo)
+}
+
+func VetReposFromDisk(bot *VetBot, ir *IssueReporter, repo Repository, workDir string) error {
+	srcDir, err := getRepoDirectory(workDir)
 	if err != nil {
-		log.Printf("unable to initialize unzip stream: %v", err)
-		return nil, err
+		return err
 	}
-	reader := tar.NewReader(unzipped)
-	log.Printf("reading contents of %s/%s", repo.Owner, repo.Repo)
-
-	filesByPath := make(map[string][]*ast.File)
-	for {
-		header, err := reader.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			log.Printf("failed to read tar entry")
-			return nil, err
-		}
-		name := header.Name
-		split := strings.SplitN(name, "/", 2)
-		if len(split) < 2 {
-			continue // we only care about files in a subdirectory (due to how GitHub returns archives).
-		}
-		realName := split[1]
-		switch header.Typeflag {
-		case tar.TypeReg:
-			if IgnoreFile(realName) {
-				continue
-			}
-			bytes, err := ioutil.ReadAll(reader)
-			if err != nil {
-				log.Printf("error reading contents of %s: %v", realName, err)
-				return nil, err
-			}
-			file, err := parser.ParseFile(fset, realName, bytes, parser.DeclarationErrors)
-			if err != nil {
-				log.Printf("error parsing file %s: %v", realName, err)
-				return nil, err
-			}
-			filesByPath[path.Dir(realName)] = append(filesByPath[path.Dir(realName)], file)
-			countLines(realName, bytes)
-			stats.AddFile(realName)
-		}
+	var fset token.FileSet
+	config := packages.Config{
+		Dir:  srcDir,
+		Fset: &fset,
+		Mode: packages.NeedTypesInfo | packages.NeedSyntax | packages.NeedTypes,
 	}
-	return filesByPath, nil
-}
-
-func countLines(filename string, contents []byte) {
-	lines := bytes.Count(contents, []byte{'\n'})
-	stats.AddCount(stats.StatSloc, lines)
-	if strings.HasSuffix(filename, "_test.go") {
-		stats.AddCount(stats.StatSlocTest, lines)
-	}
-	if strings.HasPrefix(filename, "vendor") {
-		stats.AddCount(stats.StatSlocVendored, lines)
-	}
-}
-
-// IgnoreFile returns true if the file should be ignored.
-func IgnoreFile(filename string) bool {
-	if strings.HasPrefix(filename, "vendor/") || strings.HasSuffix(filename, "_test.go") {
-		return true
-	}
-	return !strings.HasSuffix(filename, ".go")
-}
-
-// Reporter provides a means to yield a diagnostic function suitable for use by the analysis package which
-// also has access to the contents and name of the file being observed.
-type Reporter func(map[string][]byte) func(analysis.Diagnostic) // yay for currying!
-
-// VetRepo runs all static analyzers on the parsed set of files provided. When an issue is found,
-// the Reporter provided in onFind is triggered.
-func VetRepo(fset *token.FileSet, filesByPath map[string][]*ast.File, onFind Reporter) {
-	log.Println("vetting repo contents")
-	stats.Clear()
-
-	var hardTypeCheckErrs []error
-	config := loader.Config{
-		Fset:        fset,
-		AllowErrors: true,
-		ParserMode:  parser.DeclarationErrors,
-		TypeCheckFuncBodies: func(path string) bool {
-			if _, ok := filesByPath[path]; ok {
-				return true
-			}
-			return false
-		},
-		TypeChecker: types.Config{
-			Importer: importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
-				return nil, nil
-			}),
-			Error: func(err error) {
-				if err, ok := err.(types.Error); ok {
-					fset.File(err.Pos)
-					if !err.Soft {
-						hardTypeCheckErrs = append(hardTypeCheckErrs, err)
-					}
-				}
-			},
-		},
-	}
-
-	packagesToAnalyze := make(map[string]struct{})
-	for dir, files := range filesByPath {
-		config.CreateFromFiles(dir, files...)
-		for _, file := range files {
-			// only analyze packages from .go files we found and parsed in the repository
-			// needed because config.Load() returns a Program containing standard-library packages
-			// we don't care about.
-			packagesToAnalyze[file.Name.Name] = struct{}{}
-		}
-	}
-
-	prog, err := config.Load()
-
+	pkgs, err := packages.Load(&config, "./...")
 	if err != nil {
 		log.Printf("error loading packages: %v", err)
-		return
+		return err
 	}
-	if hardTypeCheckErrs != nil {
-		log.Println("encountered hard type-checking errors")
-	}
-	fmt.Printf("type-checked %d packages\n", len(prog.AllPackages))
+	log.Printf("type-checked %d packages\n", len(pkgs))
 
-	for _, pkgInfo := range prog.AllPackages {
-		pkgName := pkgInfo.Pkg.Name()
-		if _, ok := packagesToAnalyze[pkgName]; !ok {
-			continue
-		}
-		if strings.HasSuffix(pkgName, "_test") {
-			continue
-		}
+	for _, pkg := range pkgs {
 
 		pass := analysis.Pass{
-			Fset:  fset,
-			Files: pkgInfo.Files,
+			Fset:  pkg.Fset,
+			Files: pkg.Syntax,
 			Report: func(d analysis.Diagnostic) {
 				fmt.Println(d.Message, d.Related)
 			},
 			ResultOf:  make(map[*analysis.Analyzer]interface{}),
-			TypesInfo: &pkgInfo.Info,
+			TypesInfo: pkg.TypesInfo,
+			Pkg:       pkg.Types,
 		}
 
 		resetFactBase := util.AddFactBase(&pass)
@@ -254,31 +146,46 @@ func VetRepo(fset *token.FileSet, filesByPath map[string][]*ast.File, onFind Rep
 			pass.ResultOf[analyzer], err = analyzer.Run(&pass)
 			if err != nil {
 				log.Printf("failed %s analysis: %v", analyzer.Name, err)
-				return
+				return err
 			}
 			resetFactBase()
 		}
 	}
-	return
+
+	stats.FlushStats(bot.statsWriter, repo.Owner, repo.Repo)
+	return nil
 }
 
-// GetRootCommitID retrieves the root commit of the default branch of a repository.
-func GetRootCommitID(bot *VetBot, repo Repository) (string, error) {
-	r, _, err := bot.client.GetRepository(repo.Owner, repo.Repo)
+// gitRepoDirectory returns the first directory found as a subdirectory of the provided
+// workDir.
+func getRepoDirectory(workDir string) (string, error) {
+	files, err := ioutil.ReadDir(workDir)
 	if err != nil {
-		log.Printf("failed to get repo: %v", err)
 		return "", err
 	}
-	defaultBranch := r.GetDefaultBranch()
-
-	// retrieve the root commit of the default branch for the repository
-	branch, _, err := bot.client.GetRepositoryBranch(repo.Owner, repo.Repo, defaultBranch)
-	if err != nil {
-		log.Printf("failed to get default branch: %v", err)
-		return "", err
+	for _, finfo := range files {
+		if finfo.IsDir() {
+			return path.Join(workDir, finfo.Name()), nil
+		}
 	}
-	return branch.GetCommit().GetSHA(), nil
+	return "", errors.New("expected GitHub tarball to contain a directory")
 }
+
+func cleanWorkDir(workDir string) error {
+	files, err := ioutil.ReadDir(workDir)
+	if err != nil {
+		return err
+	}
+	for _, finfo := range files {
+		err := os.RemoveAll(path.Join(workDir, finfo.Name()))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type Reporter func(map[string][]byte) func(analysis.Diagnostic) // yay for currying!
 
 // ReportFinding curries several parameters into a function whose signature matches that expected
 // by the analysis package for a Diagnostic function.

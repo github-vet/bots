@@ -2,7 +2,10 @@
 // occurrence of important events. The stats store is not thread-safe in the slightest.
 package stats
 
-import "strings"
+import (
+	"strings"
+	"sync"
+)
 
 var statsStore statsStorage = statsStorage{
 	filenames:  make(map[string]struct{}),
@@ -12,6 +15,7 @@ var statsStore statsStorage = statsStorage{
 type statsStorage struct {
 	countStats map[CountStat]int
 	filenames  map[string]struct{}
+	mut        sync.Mutex
 }
 
 // Clear resets all stores statistics to zero.
@@ -22,6 +26,8 @@ func Clear() {
 
 // AddCount adds the provided diff to the count of the provided CountStat
 func AddCount(stat CountStat, diff int) {
+	statsStore.mut.Lock()
+	defer statsStore.mut.Unlock()
 	statsStore.countStats[stat] += diff
 }
 
@@ -32,13 +38,12 @@ func GetCount(stat CountStat) int {
 
 // AddFile counts the existence of a file and updates the values of StatFiles and StatTestFiles
 func AddFile(filename string) {
-	statsStore.filenames[filename] = struct{}{}
-	statsStore.countStats[StatFiles]++
-	if strings.HasSuffix(filename, "_test.go") {
-		statsStore.countStats[StatTestFile]++
-	}
-	if strings.HasPrefix(filename, "vendor") {
-		statsStore.countStats[StatVendoredFile]++
+	if strings.HasSuffix(filename, ".go") && !strings.HasSuffix(filename, ".pb.go") {
+		statsStore.filenames[filename] = struct{}{}
+		statsStore.countStats[StatFiles]++
+		if strings.HasSuffix(filename, "_test.go") {
+			statsStore.countStats[StatTestFile]++
+		}
 	}
 }
 
@@ -62,36 +67,23 @@ func CountMissingTestFiles() int {
 type CountStat uint8
 
 const (
-	StatSloc CountStat = iota
-	StatSlocTest
-	StatSlocVendored
-	StatFuncDecl
+	StatFuncDecl CountStat = iota
 	StatFuncCalls
 	StatRangeLoops
 	StatFiles
 	StatTestFile
-	StatVendoredFile
 	StatUnaryReferenceExpr
-	StatLoopclosureHits
-	StatLooppointerHits
-	StatPtrFuncStartsGoroutine
-	StatPtrFuncWritesPtr
-	StatPtrDeclCallsThirdPartyCode
-	StatLooppointerReportsWritePtr
-	StatLooppointerReportsAsync
-	StatLooppointerReportsThirdParty
-	StatLooppointerReportsPointerReassigned
-	StatLooppointerReportsCompositeLit
+	StatWritesInputHits
+	StatPtrCmpHits
+	StatNestedCallsiteHits
+	StatAsyncCaptureHits
+	StatExternalCalls
+	StatReportedRangeLoops
+	StatReportedRangeLoopIssues
 )
 
 func (c CountStat) String() string {
 	switch c {
-	case StatSloc:
-		return "StatSloc"
-	case StatSlocTest:
-		return "StatSlocTest"
-	case StatSlocVendored:
-		return "StatSlocVendored"
 	case StatFuncDecl:
 		return "StatFuncDecl"
 	case StatFuncCalls:
@@ -102,53 +94,38 @@ func (c CountStat) String() string {
 		return "StatFiles"
 	case StatTestFile:
 		return "StatTestFile"
-	case StatVendoredFile:
-		return "StatVendoredFile"
 	case StatUnaryReferenceExpr:
 		return "StatUnaryReferenceExpr"
-	case StatLoopclosureHits:
-		return "StatLoopclosureHits"
-	case StatLooppointerHits:
-		return "StatLooppointerHits"
-	case StatPtrFuncStartsGoroutine:
-		return "StatPtrFuncStartsGoroutine"
-	case StatPtrFuncWritesPtr:
-		return "StatPtrFuncWritesPtr"
-	case StatPtrDeclCallsThirdPartyCode:
-		return "StatPtrDeclCallsThirdPartyCode"
-	case StatLooppointerReportsWritePtr:
-		return "StatLooppointerReportsWritePtr"
-	case StatLooppointerReportsAsync:
-		return "StatLooppointerReportsAsync"
-	case StatLooppointerReportsThirdParty:
-		return "StatLooppointerReportsThirdParty"
-	case StatLooppointerReportsPointerReassigned:
-		return "StatLooppointerReportsPointerReassigned"
-	case StatLooppointerReportsCompositeLit:
-		return "StatLooppointerReportsCompositeLit"
+	case StatWritesInputHits:
+		return "StatWritesInputHits"
+	case StatPtrCmpHits:
+		return "StatPtrCmpHits"
+	case StatNestedCallsiteHits:
+		return "StatNestedCallsiteHits"
+	case StatAsyncCaptureHits:
+		return "StatAsyncCaptureHits"
+	case StatExternalCalls:
+		return "StatExternalCalls"
+	case StatReportedRangeLoops:
+		return "StatReportedRangeLoops"
+	case StatReportedRangeLoopIssues:
+		return "StatReportedRangeLoopIssues"
 	}
 	return "Unknown CountStat"
 }
 
 var AllStats []CountStat = []CountStat{
-	StatSloc,
-	StatSlocTest,
-	StatSlocVendored,
 	StatFuncDecl,
 	StatFuncCalls,
 	StatRangeLoops,
+	StatReportedRangeLoops,
+	StatReportedRangeLoopIssues,
 	StatFiles,
 	StatTestFile,
-	StatVendoredFile,
 	StatUnaryReferenceExpr,
-	StatLoopclosureHits,
-	StatLooppointerHits,
-	StatPtrFuncStartsGoroutine,
-	StatPtrFuncWritesPtr,
-	StatPtrDeclCallsThirdPartyCode,
-	StatLooppointerReportsWritePtr,
-	StatLooppointerReportsAsync,
-	StatLooppointerReportsThirdParty,
-	StatLooppointerReportsPointerReassigned,
-	StatLooppointerReportsCompositeLit, // N.B. this is append only; rearranging the stats will result in corrupted data.
+	StatWritesInputHits,
+	StatPtrCmpHits,
+	StatNestedCallsiteHits,
+	StatAsyncCaptureHits,
+	StatExternalCalls, // N.B. this is append only; rearranging the stats can result in corrupted data.
 }

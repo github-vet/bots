@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/util"
+	"github.com/github-vet/bots/cmd/vet-bot/stats"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -63,11 +64,14 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	for _, fact := range pass.AllObjectFacts() {
 		result.Vars[fact.Object] = fact.Fact.(*CapturesAsync)
 	}
-
+	stats.AddCount(stats.StatAsyncCaptureHits, len(pass.AllObjectFacts()))
 	return result, nil
 }
 
 func markAllIdentsUnsafe(pass *analysis.Pass, n ast.Node, inputs []types.Object) {
+	if len(inputs) == 0 {
+		return
+	}
 	ast.Inspect(n, func(n ast.Node) bool {
 		id, ok := n.(*ast.Ident)
 		if !ok {

@@ -12,6 +12,7 @@ import (
 	"golang.org/x/tools/go/ast/inspector"
 
 	"github.com/github-vet/bots/cmd/vet-bot/analysis/util"
+	"github.com/github-vet/bots/cmd/vet-bot/stats"
 )
 
 var Analyzer = &analysis.Analyzer{
@@ -71,6 +72,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	for _, fact := range pass.AllObjectFacts() {
 		result.Vars[fact.Object] = fact.Fact.(*ComparesInput)
 	}
+	stats.AddCount(stats.StatPtrCmpHits, len(pass.AllObjectFacts()))
 
 	return result, nil
 }

@@ -2,10 +2,10 @@ package typegraph
 
 import (
 	"errors"
+	"fmt"
 	"go/types"
+	"strings"
 	"sync"
-
-	"golang.org/x/tools/go/analysis"
 )
 
 // CallGraph represents an callgraph, relying on function signatures produced during type-checking.
@@ -17,6 +17,32 @@ type CallGraph struct {
 	callGraph     map[int][]int
 	calledByGraph map[int][]int // lazily-constructed
 	mut           sync.Mutex
+}
+
+func (cg *CallGraph) DotCallGraph() string {
+	return cg.dotGraph(cg.callGraph)
+}
+
+func (cg *CallGraph) DotCalledByGraph() string {
+	cg.lazyInitCalledBy()
+	return cg.dotGraph(cg.calledByGraph)
+}
+
+func (cg *CallGraph) dotGraph(adjList map[int][]int) string {
+	var sb strings.Builder
+	sb.WriteString("digraph G {\n")
+	for src, targets := range adjList {
+		fmt.Fprintf(&sb, `"%s" -> `, cg.signatures[src].String())
+		for idx, target := range targets {
+			fmt.Fprintf(&sb, `"%s"`, cg.signatures[target].String())
+			if idx != len(targets)-1 {
+				sb.WriteString(", ")
+			}
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("}\n")
+	return sb.String()
 }
 
 // NewCallGraph creates an empty callgraph.
@@ -104,8 +130,8 @@ func (cg *CallGraph) CalledByRoots() []*types.Func {
 }
 
 // CalledByBFS performs a breadth-first search of the called-by graph, starting from the set of roots provided.
-// The provided visit function is called for every node visited during the search. Each node in the graph is visited
-// at most once.
+// The provided visit function is called for every node visited during the search. Each edge is visted
+// once.
 func (cg *CallGraph) CalledByBFS(roots []*types.Func, visit func(sig *types.Func)) {
 	cg.lazyInitCalledBy()
 	rootIDs := make([]int, 0, len(roots))
@@ -124,9 +150,7 @@ func (cg *CallGraph) CalledByBFS(roots []*types.Func, visit func(sig *types.Func
 		visited[curr] = true
 		visit(cg.signatures[curr])
 		for _, child := range cg.calledByGraph[curr] {
-			if !visited[child] {
-				frontier = append(frontier, child)
-			}
+			frontier = append(frontier, child)
 		}
 	}
 }
@@ -199,22 +223,6 @@ func (cg *CallGraph) BFS(root *types.Func, visit func(sig *types.Func)) error {
 		}
 	}
 	return nil
-}
-
-// InductFactToCallers is a convenience method which uses the callgraph to perform induction, using the
-// calls-by relation to export the provided fact to all callers of the provided root functions.
-func (cg *CallGraph) InductFactToCallers(pass analysis.Pass, roots []*types.Func, fact analysis.Fact) {
-	cg.CalledByBFS(roots, func(sig *types.Func) {
-		pass.ExportObjectFact(sig, fact)
-	})
-}
-
-// InductFactToCallees is a convenience method which uses the callgraph to inductively associate a
-// fact with all functions called by the provided root function.
-func (cg *CallGraph) InductFactToCallees(pass analysis.Pass, root *types.Func, fact analysis.Fact) {
-	cg.BFS(root, func(sig *types.Func) {
-		pass.ExportObjectFact(sig, fact)
-	})
 }
 
 // lazyInitCalledBy initializes the calledByGraph structure if it is nil. Not all applications will require

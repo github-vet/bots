@@ -7,6 +7,8 @@ import (
 )
 
 func main() {
+
+	fmt.Println(`
 	var a A
 	for _, z := range []int{1} { // want "suspicious use of range-loop variable" z:"variable z passed to unsafe call; reported as: WritesInput"
 		var y int
@@ -48,10 +50,20 @@ func main() {
 		if x == &z {
 			fmt.Println("woohoo!")
 		}
+	}`)
+	x, y := 1, 2
+	for _, z := range []int{1, 2, 3, 4} { // want "suspicious use of range-loop variable" z:"variable z passed to unsafe call; reported as: ComparesPtr"
+		ptrCmp(&x, &z)
 	}
 	for _, z := range []int{1, 2, 3, 4} { // want "suspicious use of range-loop variable" z:"variable z passed to unsafe call; reported as: ComparesPtr"
-		ptrCmp(&z, x)
+		ptrCmp1(&z)
 	}
+	for _, z := range []int{1, 2, 3, 4} { // want "suspicious use of range-loop variable" z:"variable z passed to unsafe call; reported as: ComparesPtr"
+		ptrCmp2(&z)
+	}
+	fmt.Println(`for _, a := range []A{{}, {}} { // want "suspicious use of range-loop variable" a:"variable a passed to unsafe call; reported as WritesInput"
+		writeStruct(&a)
+	}`)
 	fmt.Println(x, y) // for use
 }
 
@@ -164,8 +176,8 @@ func callQualifiedIdentifier2(x *int) {
 }
 
 func ptrCmp(x *int, y *int) {
-	ptrCmp1(x)
-	safe(y)
+	ptrCmp1(y)
+	safe(x)
 }
 
 func ptrCmp1(x *int) {
@@ -173,8 +185,21 @@ func ptrCmp1(x *int) {
 }
 
 func ptrCmp2(x *int) {
+	ptrCmp3(x)
+}
+
+func ptrCmp3(x *int) {
 	var y *int
 	if x == y {
 		fmt.Println("ack!")
 	}
+}
+
+func writeStruct(a *A) {
+	writeStruct2(a)
+}
+
+func writeStruct2(a *A) {
+	var y *A = a
+	fmt.Println(y)
 }

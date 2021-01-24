@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/github-vet/bots/cmd/vet-bot/acceptlist"
+	"github.com/github-vet/bots/cmd/vet-bot/stats"
 	"github.com/github-vet/bots/internal/db"
 	"github.com/github-vet/bots/internal/ratelimit"
 	"github.com/google/go-github/v32/github"
@@ -82,7 +83,7 @@ func sampleRepos(vetBot *VetBot, sampler *RepositorySampler, issueReporter *Issu
 			return
 		default:
 			err := sampler.Sample(func(r Repository) error {
-				return VetRepositoryBulk(vetBot, issueReporter, r)
+				return VetRepositoryToDisk(vetBot, issueReporter, r)
 			})
 			if err != nil {
 				log.Printf("stopping scan due to error: %v", err)
@@ -96,7 +97,7 @@ func sampleRepos(vetBot *VetBot, sampler *RepositorySampler, issueReporter *Issu
 }
 
 func sampleRepo(vetBot *VetBot, issueReporter *IssueReporter) {
-	err := VetRepositoryBulk(vetBot, issueReporter, Repository{
+	err := VetRepositoryToDisk(vetBot, issueReporter, Repository{
 		Owner: vetBot.opts.SingleOwner,
 		Repo:  vetBot.opts.SingleRepo,
 	})
@@ -150,17 +151,31 @@ func NewVetBot(token string, opts opts) VetBot {
 		}
 	}
 
+	var writeStatsHeader bool
+	if _, err := os.Stat(opts.StatsFile); err != nil {
+		writeStatsHeader = true
+	}
+
 	statsFile, err := os.OpenFile(opts.StatsFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalf("cannot open stats file from %s: %v", opts.StatsFile, err)
 	}
 	mw := NewMutexWriter(statsFile)
+	statsCsv := csv.NewWriter(&mw)
+	if writeStatsHeader {
+		header := []string{"Owner", "Repo"}
+		for _, stat := range stats.AllStats {
+			header = append(header, stat.String())
+		}
+		statsCsv.Write(header)
+		statsCsv.Flush()
+	}
 	return VetBot{
 		client:      &limited,
 		db:          DB,
 		opts:        opts,
 		statsFile:   &mw,
-		statsWriter: csv.NewWriter(&mw),
+		statsWriter: statsCsv,
 	}
 }
 

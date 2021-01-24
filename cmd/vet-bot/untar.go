@@ -11,20 +11,22 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/github-vet/bots/cmd/vet-bot/stats"
 )
 
 // shamelessly lifted from:
 // https://github.com/golang/build/blob/024bd71c08f01e2d22e1f9592a7c8f5de9ca0861/internal/untar/untar.go#L31-L141
-func untar(r io.Reader, dir string) (err error) {
+func untar(r io.Reader, dir string, repo Repository) (err error) {
 	t0 := time.Now()
 	nFiles := 0
 	madeDir := map[string]bool{}
 	defer func() {
 		td := time.Since(t0)
 		if err == nil {
-			log.Printf("extracted tarball into %s: %d files, %d dirs (%v)", dir, nFiles, len(madeDir), td)
+			log.Printf("extracted %s into %s: %d files, %d dirs (%v)", repo, dir, nFiles, len(madeDir), td)
 		} else {
-			log.Printf("error extracting tarball into %s after %d files, %d dirs, %v: %v", dir, nFiles, len(madeDir), td, err)
+			log.Printf("error extracting %s into %s after %d files, %d dirs, %v: %v", repo, dir, nFiles, len(madeDir), td, err)
 		}
 	}()
 	zr, err := gzip.NewReader(r)
@@ -52,6 +54,7 @@ func untar(r io.Reader, dir string) (err error) {
 		mode := fi.Mode()
 		switch {
 		case mode.IsRegular():
+			stats.AddFile(f.Name)
 			// Make the directory. This is redundant because it should
 			// already be made by a directory entry in the tar
 			// beforehand. Thus, don't check for errors; the next
@@ -102,8 +105,6 @@ func untar(r io.Reader, dir string) (err error) {
 				return err
 			}
 			madeDir[abs] = true
-		default:
-			return fmt.Errorf("tar file entry %s contained unsupported file type %v", f.Name, mode)
 		}
 	}
 	return nil

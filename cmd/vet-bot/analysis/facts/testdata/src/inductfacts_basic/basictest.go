@@ -159,6 +159,11 @@ func usePtrCmp2(x *int) { // want x:"ComparesPtr"
 	}
 }
 
+func usePtrCmpDouble(x *int, y *int) { // want x:"ComparesPtr"
+	usePtrCmp1(x)
+	safe(y)
+}
+
 func combinedBadness(x *int) { // want x:"WritesInput|ExternalFunc|ComparesPtr"
 	usePtrCmp(x)
 	callThirdParty(x)
@@ -197,4 +202,41 @@ func nestedCall2(x *int) { // want x:"NestedCallsite"
 	}(func(y *int) *int {
 		return y
 	}(x))
+}
+
+func ptrCmp(x *int, y *int) { // want y:"ComparesPtr"
+	ptrCmp1(y)
+	safe(x)
+}
+
+func ptrCmp1(x *int) { // want x:"ComparesPtr"
+	ptrCmp2(x)
+}
+
+func ptrCmp2(x *int) { // want x:"ComparesPtr"
+	var y *int
+	if x == y {
+		fmt.Println("ack!")
+	}
+}
+
+func main() {
+	x, y := 1, 2
+	ptrCmpB(&x, &y)
+}
+
+func ptrCmpB(x *int, y *int) { // want x:"ComparesPtr"
+	ptrCmpB1(x)
+	safe(y)
+}
+
+func ptrCmpB1(x *int) { // want x:"ComparesPtr"
+	ptrCmpB2(x)
+}
+
+func ptrCmpB2(x *int) { // want x:"ComparesPtr"
+	var y *int
+	if x == y {
+		fmt.Println("ack!")
+	}
 }

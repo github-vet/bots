@@ -3,9 +3,9 @@ package typegraph
 import (
 	"go/ast"
 	"go/types"
-	"log"
 	"reflect"
 
+	"github.com/github-vet/bots/cmd/vet-bot/stats"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -54,6 +54,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		}
 		switch typed := n.(type) {
 		case *ast.FuncDecl:
+			stats.AddCount(stats.StatFuncDecl, 1)
 			// add declarations to the list of signatures which have declarations.
 			fun := FuncDeclType(pass.TypesInfo, typed)
 			if fun == nil {
@@ -68,10 +69,12 @@ func run(pass *analysis.Pass) (interface{}, error) {
 			}
 
 		case *ast.CallExpr:
+			stats.AddCount(stats.StatFuncCalls, 1)
 			// retrieve type of Expression
 			call, external := CallExprType(pass.TypesInfo, typed)
 			if call == nil {
 				if external {
+					stats.AddCount(stats.StatExternalCalls, 1)
 					result.ExternalCalls = append(result.ExternalCalls, typed)
 				}
 				return true
@@ -84,7 +87,6 @@ func run(pass *analysis.Pass) (interface{}, error) {
 			// retrieve the type of the enclosing function declaration
 			caller := outermostFunc(pass.TypesInfo, stack)
 			if caller == nil {
-				log.Printf("FuncDecl %s did not have type information associated; was type-checking run?", types.ExprString(typed))
 				return false
 			}
 

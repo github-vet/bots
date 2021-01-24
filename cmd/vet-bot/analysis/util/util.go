@@ -30,6 +30,9 @@ func OutermostFuncDecl(stack []ast.Node) *ast.FuncDecl {
 
 // FuncInputs extracts the input parameters associated with the arguments of the provided function.
 func FuncInputs(info *types.Info, fdec *ast.FuncDecl) []types.Object {
+	if fdec == nil || info == nil {
+		return nil
+	}
 	fun := info.ObjectOf(fdec.Name)
 	if fun == nil {
 		return nil
